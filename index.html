@@ -73,7 +73,26 @@
   .btn { appearance: none; border: 1px solid rgba(0,229,255,0.35); background: linear-gradient(180deg, #1a1f33, #12172a); color: var(--text); border-radius: 10px; padding: 8px 12px; font-weight: 700; box-shadow: var(--glow); cursor: pointer; }
       .btn:active { transform: translateY(1px); }
 
-      main { max-width: 760px; margin: 16px auto; padding: 0 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
+      main { max-width: 1040px; margin: 16px auto; padding: 0 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
+
+      /* Layout with optional left sidebar (leaderboard) */
+  .layout { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+      .sidebar { display: none; background: linear-gradient(180deg, var(--panel), var(--panel-2)); border-radius: 16px; border: 1px solid rgba(0,229,255,0.25); box-shadow: 0 12px 28px rgba(0,0,0,0.35), inset 0 0 18px rgba(0,229,255,0.08); padding: 12px; }
+      .sidebar h3 { margin: 6px 8px 10px; font-size: 14px; font-weight: 800; letter-spacing: .5px; color: var(--text); }
+      .leader-scroll { max-height: 520px; overflow: auto; border-radius: 10px; border: 1px solid rgba(0,229,255,0.18); }
+      table.leader { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .leader thead th { position: sticky; top: 0; background: #12172a; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(0,229,255,0.18); }
+      .leader tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(0,229,255,0.1); }
+      .leader tbody tr:hover { background: rgba(0,229,255,0.05); }
+      .leader .col-r { text-align: right; }
+
+      /* Leaderboard button visibility: show on small screens, hide when sidebar is visible */
+      #btn-leader { display: inline-flex; }
+      @media (min-width: 980px) {
+        .sidebar { display: block; }
+        #btn-leader { display: none; }
+        .layout { grid-template-columns: 340px 1fr; }
+      }
 
   .board-wrap { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border-radius: 16px; border: 1px solid rgba(0,229,255,0.25); box-shadow: 0 12px 28px rgba(0,0,0,0.35), inset 0 0 18px rgba(0,229,255,0.08); padding: 16px; margin: 0 auto 16px; width: 100%; max-width: var(--boardW); }
       .board {
@@ -146,6 +165,18 @@
       }
 
       .sr-only { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+
+  /* Modal base styles (for nickname and mobile leaderboard) */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(6,8,14,0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 10001; }
+  .modal-backdrop.show { display: flex; }
+  .modal-card { width: min(92vw, 520px); background: linear-gradient(180deg, #1a1f33, #12172a); border: 1px solid rgba(0,229,255,0.3); border-radius: 14px; box-shadow: var(--glow); color: var(--text); }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid rgba(0,229,255,0.18); }
+  .modal-title { font-weight: 800; letter-spacing: .6px; }
+  .modal-body { padding: 14px; }
+  .modal-footer { padding: 12px 14px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid rgba(0,229,255,0.18); }
+  .input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(0,229,255,0.25); background: #0f1324; color: var(--text); font-weight: 700; letter-spacing: .4px; }
+  .help { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .error { color: #ff6b8a; font-size: 12px; margin-top: 6px; font-weight: 700; }
     </style>
   </head>
   <body>
@@ -164,25 +195,80 @@
           </div>
           <button id="btn-hint" class="btn" aria-label="Reveal a letter hint">Hint</button>
           <button id="btn-new" class="btn" aria-label="Start next word">Next word</button>
+          <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
         </div>
       </div>
     </header>
 
     <main>
-      <div class="board-wrap">
+      <div class="layout">
+        <aside id="sidebar" class="sidebar" aria-label="Global Leaderboard">
+          <h3>Global Leaderboard</h3>
+          <div class="leader-scroll">
+            <table class="leader" aria-describedby="leader-desc">
+              <thead>
+                <tr><th>Nickname</th><th class="col-r">Total Guessed</th><th class="col-r">Win %</th></tr>
+              </thead>
+              <tbody id="leader-tbody"><tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div id="leader-desc" class="sr-only">Sorted by total words guessed descending. Scroll if long.</div>
+        </aside>
+        <section>
+          <div class="board-wrap">
   <div id="board" class="board" role="application" aria-label="Neon Wordle board">
           <!-- rows/tiles injected -->
         </div>
-      </div>
-      <div class="keyboard" aria-label="On-screen keyboard">
-        <div class="key-row" id="kb-row-1"></div>
-        <div class="key-row" id="kb-row-2"></div>
-        <div class="key-row" id="kb-row-3"></div>
+          </div>
+          <div class="keyboard" aria-label="On-screen keyboard">
+            <div class="key-row" id="kb-row-1"></div>
+            <div class="key-row" id="kb-row-2"></div>
+            <div class="key-row" id="kb-row-3"></div>
+          </div>
+        </section>
       </div>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div class="sr-only" aria-live="polite" id="sr"></div>
+
+    <!-- Nickname Modal -->
+    <div id="modal-nick" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="nick-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div id="nick-title" class="modal-title">Choose your nickname</div>
+        </div>
+        <div class="modal-body">
+          <label for="nick-input" style="display:block; font-weight:700; margin-bottom:6px;">Nickname</label>
+          <input id="nick-input" class="input" maxlength="12" placeholder="letters and digits only" autocomplete="off" />
+          <div class="help">Required to play. 1–12 chars, A–Z and 0–9 only. Unique globally.</div>
+          <div id="nick-error" class="error" role="alert" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="nick-confirm" class="btn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leaderboard Modal (mobile) -->
+    <div id="modal-leader" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="leader-title">
+      <div class="modal-card" style="width:min(96vw,700px)">
+        <div class="modal-header">
+          <div id="leader-title" class="modal-title">Global Leaderboard</div>
+          <button id="leader-close" class="btn" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="leader-scroll" style="max-height:60vh">
+            <table class="leader">
+              <thead>
+                <tr><th>Nickname</th><th class="col-r">Total Guessed</th><th class="col-r">Win %</th></tr>
+              </thead>
+              <tbody id="leader-tbody-modal"><tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
 
   <!-- Embedded word bank (1,500 five-letter words) -->
   <script id="word-bank" type="text/plain">
@@ -1714,6 +1800,107 @@ ganev
       }
       loadDict();
 
+      // --- Leaderboard and nickname gating ---
+      const btnLeader = document.getElementById('btn-leader');
+      const sidebarEl = document.getElementById('sidebar');
+      const leaderBody = document.getElementById('leader-tbody');
+      const leaderBodyModal = document.getElementById('leader-tbody-modal');
+      const modalNick = document.getElementById('modal-nick');
+      const nickInput = document.getElementById('nick-input');
+      const nickConfirm = document.getElementById('nick-confirm');
+      const nickError = document.getElementById('nick-error');
+      const modalLeader = document.getElementById('modal-leader');
+      const leaderClose = document.getElementById('leader-close');
+
+      function openModal(m){ m.classList.add('show'); }
+      function closeModal(m){ m.classList.remove('show'); }
+      function sanitize(text){
+        const map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+        return String(text).replace(/[&<>"']/g, ch => map[ch]);
+      }
+
+      // Provider abstraction; default Local fallback. To enable global sync, set window.LEADERBOARD_API with endpoints.
+      class LocalLeaderboard {
+        constructor(){
+          this.key = 'leader_local_players';
+          this.map = this._load();
+        }
+        _load(){ try { return new Map(Object.entries(JSON.parse(localStorage.getItem(this.key)||'{}'))); } catch { return new Map(); } }
+        _save(){ const obj = Object.fromEntries(this.map); localStorage.setItem(this.key, JSON.stringify(obj)); }
+        async exists(nick){ return this.map.has(nick.toLowerCase()); }
+        async register(nick){ const k = nick.toLowerCase(); if (this.map.has(k)) throw new Error('exists'); this.map.set(k, { nick, wins: 0, played: 0 }); this._save(); return true; }
+        async upsert(nick, totals){ const k = nick.toLowerCase(); const cur = this.map.get(k) || { nick, wins: 0, played: 0 }; this.map.set(k, { nick, wins: Math.max(totals.wins, cur.wins), played: Math.max(totals.played, cur.played) }); this._save(); return true; }
+        async list(){ return Array.from(this.map.values()); }
+      }
+
+      // Optional remote REST provider. Set window.LEADERBOARD_API = { baseUrl: 'https://your.api', apiKey: 'optional' }.
+      class RemoteLeaderboard {
+        constructor(cfg){ this.cfg = cfg; }
+        async _fetch(path, opts={}){
+          const headers = Object.assign({ 'Content-Type': 'application/json' }, this.cfg.apiKey ? { 'Authorization': `Bearer ${this.cfg.apiKey}` } : {});
+          const res = await fetch(`${this.cfg.baseUrl}${path}`, { ...opts, headers });
+          if (!res.ok) throw new Error(`http ${res.status}`);
+          return res.json();
+        }
+        async exists(nick){ const j = await this._fetch(`/players/exists?nick=${encodeURIComponent(nick)}`); return !!j.exists; }
+        async register(nick){ const j = await this._fetch(`/players`, { method:'POST', body: JSON.stringify({ nick }) }); if (j && j.error) throw new Error(j.error); return true; }
+        async upsert(nick, totals){ const j = await this._fetch(`/players/${encodeURIComponent(nick)}`, { method:'PUT', body: JSON.stringify(totals) }); if (j && j.error) throw new Error(j.error); return true; }
+        async list(){ return this._fetch(`/players`); }
+      }
+
+      const provider = (window.LEADERBOARD_API && window.LEADERBOARD_API.baseUrl) ? new RemoteLeaderboard(window.LEADERBOARD_API) : new LocalLeaderboard();
+      let playerNick = (localStorage.getItem('player_nick')||'').trim();
+      let canPlay = false;
+
+      function validateNick(n){ return /^[A-Za-z0-9]{1,12}$/.test(n); }
+      async function ensureNickname(){
+        if (playerNick) { canPlay = true; return; }
+        // show modal and gate gameplay
+        openModal(modalNick);
+        nickInput.value = '';
+        nickError.style.display = 'none';
+        setTimeout(()=>nickInput.focus(), 50);
+        canPlay = false;
+      }
+      async function trySaveNick(){
+        const n = nickInput.value.trim();
+        if (!validateNick(n)) { nickError.textContent = 'Only A–Z, 0–9, up to 12 chars.'; nickError.style.display = 'block'; return; }
+        try {
+          const exists = await provider.exists(n);
+          if (exists) { nickError.textContent = 'That nickname is taken. Try another.'; nickError.style.display = 'block'; return; }
+          await provider.register(n);
+          playerNick = n; localStorage.setItem('player_nick', n);
+          nickError.style.display = 'none'; closeModal(modalNick); canPlay = true; showToast(`Welcome, ${n}!`);
+          // Push current totals if any
+          await provider.upsert(playerNick, { wins: stats.wins, played: stats.played });
+          refreshLeaderboard();
+        } catch (e) {
+          nickError.textContent = 'Could not reserve nickname. Try again.'; nickError.style.display = 'block';
+        }
+      }
+      nickConfirm.addEventListener('click', trySaveNick);
+      nickInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter') { e.preventDefault(); trySaveNick(); } });
+      btnLeader.addEventListener('click', ()=> openModal(modalLeader));
+      document.getElementById('leader-close').addEventListener('click', ()=> closeModal(modalLeader));
+
+      function renderLeaderRows(rows){
+        const make = (arr) => arr.map(p => `<tr><td>${sanitize(p.nick)}</td><td class="col-r">${p.wins}</td><td class="col-r">${p.played?Math.round((p.wins/p.played)*100):0}</td></tr>`).join('');
+        if (leaderBody) leaderBody.innerHTML = rows.length? make(rows) : '<tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">No players yet.</td></tr>';
+        if (leaderBodyModal) leaderBodyModal.innerHTML = leaderBody.innerHTML;
+      }
+      async function refreshLeaderboard(){
+        try {
+          const list = await provider.list();
+          list.sort((a,b)=> b.wins - a.wins || ((b.wins/(b.played||1)) - (a.wins/(a.played||1))) || a.nick.localeCompare(b.nick));
+          renderLeaderRows(list);
+        } catch {
+          // ignore
+        }
+      }
+      // periodic refresh
+      setInterval(refreshLeaderboard, 20000);
+      refreshLeaderboard();
+
       // --- Game constants ---
       const ROWS = 6; const COLS = 5;
       const boardEl = document.getElementById('board');
@@ -1829,9 +2016,10 @@ ganev
         announce(`New word. Start guessing.`);
       }
 
-      btnNew.addEventListener('click', () => { if (locked) return; resetGame(); });
+      btnNew.addEventListener('click', () => { if (locked) return; if (!playerNick) { ensureNickname(); return; } resetGame(); });
       btnHint.addEventListener('click', () => {
   if (locked || finished) return;
+        if (!playerNick) { ensureNickname(); return; }
         if (hintCol !== -1) { showToast('Hint already used'); return; }
         // Pick a column that is not already solved (green) and whose solution letter hasn't been revealed (no yellow/green yet)
         const candidates = [];
@@ -1879,7 +2067,8 @@ ganev
       function clearTile(r,c){ const t = tiles[r][c]; t.textContent=''; }
 
       function onKey(k){
-        if (locked) return;
+  if (locked) return;
+  if (!playerNick) { ensureNickname(); return; }
         if (finished) return; // wait for Next word
         if (k === 'enter') return submitGuess();
         if (k === 'back') return backspace();
@@ -1908,6 +2097,7 @@ ganev
       function getGuess(r){ return tiles[r].map(t => (t.textContent||'').toLowerCase()).join(''); }
 
       function submitGuess(){
+  if (!playerNick) { ensureNickname(); return; }
         const guess = getGuess(curRow);
         if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
   // Accept only real English 5-letter words
@@ -1991,6 +2181,8 @@ ganev
           rows[curRow].classList.add('bounce');
           finished = true; locked = false;
           stats.played++; stats.wins++; stats.streak++; stats.maxStreak = Math.max(stats.maxStreak, stats.streak); saveStats(stats); renderStats();
+          // push leaderboard totals
+          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           showToast(['Nice!','Clean!','Sharp!','Neon!'][Math.floor(Math.random()*4)], 1400);
           announce('You guessed it!');
           return;
@@ -2007,6 +2199,8 @@ ganev
         }
         if (curRow >= ROWS) {
           finished = true; stats.played++; stats.streak = 0; saveStats(stats); renderStats();
+          // push leaderboard totals (loss)
+          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           showToast(`The word was "${solution.toUpperCase()}"`, 1800);
           announce(`Game over. The word was ${solution}.`);
         }
@@ -2023,8 +2217,8 @@ ganev
       // Helper: small seed of solved word in console for testing (comment out in prod)
       // console.log('Solution:', solution);
 
-      // Start fresh board
-      resetGame(solution);
+  // Start: enforce nickname, then start game
+  ensureNickname().then(()=>{ if (playerNick) resetGame(solution); });
     </script>
   </body>
 </html>
