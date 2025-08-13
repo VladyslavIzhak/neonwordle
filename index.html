@@ -57,7 +57,7 @@
   /* no cookie crisps in neon theme */
 
   header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg, rgba(10,12,20,0.8), rgba(10,12,20,0.5)); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(0,229,255,0.2); }
-  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; }
+  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; padding-right: 120px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 1px; color: var(--text); }
   .brand .cookie { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(16px 16px at 35% 35%, var(--accent) 0, rgba(0,229,255,0.15) 60%, transparent 70%), radial-gradient(10px 10px at 70% 60%, var(--accent-2) 0, rgba(255,56,199,0.12) 60%, transparent 70%); box-shadow: var(--glow), var(--glow-mag); }
   .brand span { font-size: 18px; color: var(--text); }
@@ -833,6 +833,7 @@
 
   function enterDaily(){
     mode = MODE_DAILY;
+  try { localStorage.setItem('last_mode', MODE_DAILY); } catch {}
     btnDaily.style.display = 'none'; btnNormal.style.display = 'inline-flex';
     // Grid styles
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
@@ -847,6 +848,7 @@
 
   function exitDaily(){
     mode = MODE_NORMAL;
+  try { localStorage.setItem('last_mode', MODE_NORMAL); } catch {}
     btnDaily.style.display = 'inline-flex'; btnNormal.style.display = 'none';
     if (COLS !== 5) { COLS = 5; rebuildBoard(); }
     stopDailyCountdown();
@@ -1187,10 +1189,13 @@
               setDailyPlayedToday(playerNick, dateIso);
             }
             // If we're in daily mode or will switch into it later, prepare the banner
-            try {
-              const cached = localStorage.getItem(`daily_word_${todayIso}`);
-              if (cached) { lockDailyForToday(cached); }
-            } catch {}
+            // Only show banner immediately if already in Daily mode
+            if (mode === MODE_DAILY) {
+              try {
+                const cached = localStorage.getItem(`daily_word_${todayIso}`);
+                if (cached) { lockDailyForToday(cached); }
+              } catch {}
+            }
             handledDaily = true;
           }
         } catch {}
@@ -1253,8 +1258,13 @@
   function renderNickBadge(){ if (nickCorner) nickCorner.textContent = playerNick ? playerNick : 'Guest'; }
   renderNickBadge();
 
-  // Start: enforce nickname, then start game
-  ensureNickname().then(()=>{ if (playerNick) resetGame(); });
+  // Start: enforce nickname, then restore last mode and start game
+  ensureNickname().then(()=>{
+    if (!playerNick) return;
+    let last = null; try { last = localStorage.getItem('last_mode'); } catch {}
+    if (last === MODE_DAILY) { enterDaily(); }
+    else { resetGame(); }
+  });
     </script>
   </body>
 </html>
