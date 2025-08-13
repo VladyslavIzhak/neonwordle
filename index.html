@@ -322,7 +322,11 @@
         fetch('dict6.txt', { cache: 'no-store' })
           .then(r => r.ok ? r.text() : Promise.reject(r.status))
           .then(txt => {
-            txt.split(/\r?\n/).forEach(w => { const s=w.trim().toLowerCase(); if (s) DICT6.add(s); });
+            // Accept strictly 6-letter alphabetic words only, normalized to lowercase
+            txt.split(/\r?\n/).forEach(w => {
+              const s = (w||'').trim().toLowerCase();
+              if (s && /^[a-z]{6}$/.test(s)) DICT6.add(s);
+            });
             dict6Ready = DICT6.size > 0;
             if (dict6Ready) { window._DICT6_ARR = Array.from(DICT6); }
             if (dict6Ready && mode === MODE_DAILY && playerNick && (!solution || solution.length !== 6)) {
@@ -450,6 +454,7 @@
         _load(){ try { return new Map(Object.entries(JSON.parse(localStorage.getItem(this.key)||'{}'))); } catch { return new Map(); } }
         _save(){ const obj = Object.fromEntries(this.map); localStorage.setItem(this.key, JSON.stringify(obj)); }
         async get(nick){ return this.map.get(nick.toLowerCase()) || null; }
+  async delete(nick){ const k = nick.toLowerCase(); this.map.delete(k); this._save(); return true; }
         async upsertResult(nick, payload){
           const k = nick.toLowerCase();
           const cur = this.map.get(k) || { nick, streak: 0, today_rows: null, last_played: null };
@@ -483,6 +488,7 @@
         constructor(cfg){ this.url = cfg.url.replace(/\/$/, ''); this.key = cfg.key; this.table = cfg.tableDaily || 'daily'; }
         _headers(extra={}){ return Object.assign({ 'apikey': this.key, 'Authorization': `Bearer ${this.key}`, 'Content-Type': 'application/json', 'Accept': 'application/json', 'Prefer': 'return=minimal' }, extra); }
         async get(nick){ const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,streak,today_rows,last_played&nick=eq.${encodeURIComponent(nick)}`, { headers: this._headers() }); if (!res.ok) throw new Error(`http ${res.status}`); const arr = await res.json(); return Array.isArray(arr)&&arr.length?arr[0]:null; }
+  async delete(nick){ const res = await fetch(`${this.url}/rest/v1/${this.table}?nick=eq.${encodeURIComponent(nick)}`, { method:'DELETE', headers: this._headers() }); if (!res.ok) throw new Error(`http ${res.status}`); return true; }
         async upsertRow(obj){ const headers = this._headers({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }); const res = await fetch(`${this.url}/rest/v1/${this.table}`, { method:'POST', headers, body: JSON.stringify(obj) }); if (!res.ok && res.status !== 409) throw new Error(`http ${res.status}`); return true; }
         async upsertResult(nick, payload){
           const { win, attempts, dateIso } = payload;
@@ -542,6 +548,7 @@
           // If renamed, delete previous nickname record
           if (pendingOldNick && pendingOldNick.toLowerCase() !== n.toLowerCase()) {
             try { await provider.delete(pendingOldNick); } catch {}
+            try { if (dailyProvider && typeof dailyProvider.delete === 'function') await dailyProvider.delete(pendingOldNick); } catch {}
           }
           pendingOldNick = null;
           refreshLeaderboard();
@@ -575,8 +582,16 @@
       async function refreshLeaderboard(){
         try {
           if (mode === MODE_DAILY) {
-            const list = await dailyProvider.list();
-            list.sort((a,b)=> (b.streak|0) - (a.streak|0) || (a.today_rows??999) - (b.today_rows??999) || a.nick.localeCompare(b.nick));
+            const todayIso = toKyivDate(new Date()).iso;
+            // Map to ensure we only show rows for today; keep streak always
+            const raw = await dailyProvider.list();
+            const list = raw.map(p => ({
+              nick: p.nick,
+              streak: p.streak|0,
+              today_rows: (p.last_played === todayIso) ? (p.today_rows ?? null) : null,
+              last_played: p.last_played || null
+            }));
+            list.sort((a,b)=> (b.streak|0) - (a.streak|0) || ((a.today_rows ?? 999) - (b.today_rows ?? 999)) || a.nick.localeCompare(b.nick));
             // Update headers
             if (leaderTitleAside) leaderTitleAside.textContent = 'Daily Leaderboard';
             if (leaderTitleModal) leaderTitleModal.textContent = 'Daily Leaderboard';
