@@ -297,9 +297,13 @@
       url: 'https://jmcjlvukbuqsickepjbp.supabase.co',
       key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY2psdnVrYnVxc2lja2VwamJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwOTMyOTUsImV4cCI6MjA3MDY2OTI5NX0.g-PoNyO_c9NFZMqPA8zM5LfhUuCzGY9UCYYvY5h8vIc',
       schema: 'public',
-      table: 'players'
+    table: 'players',
+    tableDaily: 'daily',
+    secure: true
     };
   </script>
+  <!-- supabase-js UMD (for secure RPC and auth) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
 
     <script>
@@ -455,9 +459,53 @@
         }
       }
 
+      // Secure Supabase provider using supabase-js, RPC, and server-side computed updates
+      class SupabaseSecureBase {
+        constructor(cfg){
+          this.cfg = cfg; this.url = cfg.url.replace(/\/$/, ''); this.key = cfg.key;
+          if (!window.supabase) throw new Error('supabase-js not loaded');
+          this.sb = window.supabase.createClient(this.url, this.key);
+          this._authReady = false;
+        }
+        async ensureAuth(){
+          if (this._authReady) return;
+          try {
+            const { data: { session } } = await this.sb.auth.getSession();
+            if (!session) {
+              // anonymous auth (requires enabling in your project; otherwise use OAuth/Magic Link)
+              await this.sb.auth.signInAnonymously();
+            }
+            this._authReady = true;
+          } catch(e) { /* ignore; views are still readable anon */ }
+        }
+        async rpc(name, params){ await this.ensureAuth(); const { data, error } = await this.sb.rpc(name, params || {}); if (error) throw error; return data; }
+        async select(view, columns='*', match){ const q = this.sb.from(view).select(columns); if (match) Object.entries(match).forEach(([k,v])=> q.eq(k,v)); const { data, error } = await q; if (error) throw error; return data; }
+      }
+
+      class SupabaseSecureLeaderboard extends SupabaseSecureBase {
+        constructor(cfg){ super(cfg); this.isSecure = true; }
+        async exists(nick){ try { const { data, error } = await this.sb.from('leaderboard_players').select('nick').eq('nick', nick).limit(1); if (error) return false; return Array.isArray(data) && data.length>0; } catch { return false; } }
+        async register(nick){ await this.rpc('set_nick', { p_nick: nick }); return true; }
+        async upsert(_nick, _totals){ /* server computes totals; no-op here */ return true; }
+        async delete(_nick){ /* not supported securely; no-op */ return true; }
+        async list(){ return this.select('leaderboard_players', 'nick,wins,played'); }
+        async submitNormal(win){ await this.rpc('submit_normal_result', { p_win: !!win }); }
+      }
+
+      class SupabaseSecureDaily extends SupabaseSecureBase {
+        constructor(cfg){ super(cfg); this.isSecure = true; }
+        async get(nick){ const rows = await this.select('leaderboard_daily', 'nick,streak,today_rows,last_played', { nick }); return rows && rows[0] || null; }
+        async delete(_nick){ /* not supported securely; no-op */ return true; }
+        async upsertResult(_nick, payload){ return this.submitDaily(!!payload.win, payload.attempts|0); }
+        async submitDaily(win, attempts){ await this.rpc('submit_daily_result', { p_win: !!win, p_attempts: attempts|0 }); }
+        async list(){ return this.select('leaderboard_daily', 'nick,streak,today_rows,last_played'); }
+      }
+
   let provider = null;
   const LB = window.LEADERBOARD_API || null;
-  if (LB && LB.type === 'supabase' && LB.url && LB.key) provider = new SupabaseLeaderboard(LB);
+  if (LB && LB.type === 'supabase' && LB.url && LB.key) {
+    provider = LB.secure ? new SupabaseSecureLeaderboard(LB) : new SupabaseLeaderboard(LB);
+  }
   else if (LB && LB.baseUrl) provider = new RemoteLeaderboard(LB);
   else provider = new LocalLeaderboard();
 
@@ -528,9 +576,9 @@
         async list(){ const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,streak,today_rows,last_played`, { headers: this._headers() }); if (!res.ok) throw new Error(`http ${res.status}`); return res.json(); }
       }
 
-      let dailyProvider = null;
-      if (LB && LB.type === 'supabase' && LB.url && LB.key) dailyProvider = new SupabaseDailyLeaderboard(LB);
-      else dailyProvider = new LocalDailyLeaderboard();
+  let dailyProvider = null;
+  if (LB && LB.type === 'supabase' && LB.url && LB.key) dailyProvider = LB.secure ? new SupabaseSecureDaily(LB) : new SupabaseDailyLeaderboard(LB);
+  else dailyProvider = new LocalDailyLeaderboard();
       let playerNick = (localStorage.getItem('player_nick')||'').trim();
       let canPlay = false;
       let pendingOldNick = null; // when renaming, delete this after new nick is saved
@@ -557,7 +605,11 @@
           playerNick = n; localStorage.setItem('player_nick', n);
           nickError.style.display = 'none'; closeModal(modalNick); canPlay = true; showToast(`Welcome, ${n}!`);
           // Push current totals if any
-          await provider.upsert(playerNick, { wins: stats.wins, played: stats.played });
+          if (provider && provider.isSecure && typeof provider.register === 'function') {
+            await provider.register(playerNick);
+          } else {
+            await provider.upsert(playerNick, { wins: stats.wins, played: stats.played });
+          }
           // If renamed, delete previous nickname record
           if (pendingOldNick && pendingOldNick.toLowerCase() !== n.toLowerCase()) {
             try { await provider.delete(pendingOldNick); } catch {}
@@ -962,10 +1014,14 @@
           if (mode === MODE_DAILY) {
             // Treat abandon as a loss with max rows
             const todayIso = toKyivDate(new Date()).iso;
-            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).catch(()=>{});
+            if (dailyProvider && dailyProvider.isSecure && typeof dailyProvider.submitDaily === 'function') dailyProvider.submitDaily(false, ROWS).catch(()=>{});
+            else dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).catch(()=>{});
           } else {
             stats.played++; stats.streak = 0; saveStats(stats); renderStats();
-            if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+            if (playerNick) {
+              if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(true).then(refreshLeaderboard).catch(()=>{});
+              else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
+            }
           }
         }
         if (mode === MODE_DAILY) {
@@ -1184,14 +1240,17 @@
           // Only update normal stats/leaderboard in Normal mode
           if (mode === MODE_NORMAL) {
             stats.played++; stats.wins++; stats.streak++; stats.maxStreak = Math.max(stats.maxStreak, stats.streak); saveStats(stats); renderStats();
-            if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+            if (playerNick) {
+              if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(true).then(refreshLeaderboard).catch(()=>{});
+              else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
+            }
           }
           // Clear any pending forfeit (round concluded)
           localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
           if (mode === MODE_DAILY && playerNick) {
             const todayIso = toKyivDate(new Date()).iso;
             const attempts = curRow + 1; // rows used to win
-            dailyProvider.upsertResult(playerNick, { win: true, attempts, dateIso: todayIso }).then(()=>{
+            (dailyProvider && dailyProvider.isSecure && typeof dailyProvider.submitDaily === 'function' ? dailyProvider.submitDaily(true, attempts) : dailyProvider.upsertResult(playerNick, { win: true, attempts, dateIso: todayIso })).then(()=>{
               setDailyPlayedToday(playerNick, todayIso);
               lockDailyForToday(solution);
               refreshLeaderboard();
@@ -1215,12 +1274,15 @@
           finished = true;
           if (mode === MODE_NORMAL) { stats.played++; stats.streak = 0; saveStats(stats); renderStats(); }
           // push leaderboard totals (loss) only in Normal mode
-          if (mode === MODE_NORMAL && playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          if (mode === MODE_NORMAL && playerNick) {
+            if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(false).then(refreshLeaderboard).catch(()=>{});
+            else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
+          }
           // Clear any pending forfeit (round concluded)
           localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
           if (mode === MODE_DAILY && playerNick) {
             const todayIso = toKyivDate(new Date()).iso;
-            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).finally(()=>{
+            (dailyProvider && dailyProvider.isSecure && typeof dailyProvider.submitDaily === 'function' ? dailyProvider.submitDaily(false, ROWS) : dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso })).finally(()=>{
               setDailyPlayedToday(playerNick, todayIso);
               lockDailyForToday(solution);
               refreshLeaderboard();
@@ -1260,7 +1322,8 @@
             const todayIso = toKyivDate(new Date()).iso;
             const dateIso = meta.dateIso || todayIso;
             if (playerNick) {
-              dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
+              if (dailyProvider && dailyProvider.isSecure && typeof dailyProvider.submitDaily === 'function') dailyProvider.submitDaily(false, ROWS).catch(()=>{});
+              else dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
               setDailyPlayedToday(playerNick, dateIso);
             }
             // Only show today's banner immediately if already in Daily mode and the forfeit is for today
@@ -1275,7 +1338,10 @@
         } catch {}
   if (!handledDaily) {
           stats.played++; stats.streak = 0; saveStats(stats); renderStats();
-          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          if (playerNick) {
+            if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(false).then(refreshLeaderboard).catch(()=>{});
+            else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
+          }
         }
   try { localStorage.removeItem(FORFEIT_INFO); } catch {}
       }
