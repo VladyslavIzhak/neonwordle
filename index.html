@@ -1,0 +1,1988 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neon Wordle — Unlimited</title>
+    <style>
+      :root {
+        --bg0: #0a0b0f;
+        --bg1: #0e1018;
+        --panel: #141724;
+        --panel-2: #121523;
+        --text: #e6e7ee;
+        --muted: #9aa0b4;
+        --key-text: #e6e7ee;
+        --tile-text: #f5f7ff;
+        --absent: #3f4458;
+        --present: #ffdc5e;
+        --correct: #2ee865;
+        --accent: #00e5ff;
+        --accent-2: #ff38c7;
+        --toast-bg: rgba(10, 12, 20, 0.9);
+        --white: #fff;
+        --boardW: 520px; /* used to place side toast */
+        --glow: 0 0 12px rgba(0,229,255,0.45), 0 0 32px rgba(0,229,255,0.25);
+        --glow-mag: 0 0 12px rgba(255,56,199,0.45), 0 0 32px rgba(255,56,199,0.25);
+      }
+
+      html, body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background:
+          radial-gradient(1000px 800px at 10% 10%, rgba(0,229,255,0.12), transparent 60%),
+          radial-gradient(900px 700px at 80% 20%, rgba(255,56,199,0.10), transparent 60%),
+          linear-gradient(180deg, var(--bg1), var(--bg0));
+        background-attachment: fixed;
+        overflow-x: hidden;
+      }
+
+      /* subtle cookie speckles */
+      body::before {
+        content: '';
+        position: fixed; inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(400px 400px at 20% 80%, rgba(0,229,255,0.08), transparent 70%),
+          radial-gradient(350px 350px at 80% 70%, rgba(255,56,199,0.08), transparent 70%);
+        mix-blend-mode: screen;
+      }
+
+  /* no cookie crisps in neon theme */
+
+  header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg, rgba(10,12,20,0.8), rgba(10,12,20,0.5)); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(0,229,255,0.2); }
+      .header-inner {
+        max-width: 760px; margin: 0 auto; padding: 12px 16px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 1px; color: var(--text); }
+  .brand .cookie { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(16px 16px at 35% 35%, var(--accent) 0, rgba(0,229,255,0.15) 60%, transparent 70%), radial-gradient(10px 10px at 70% 60%, var(--accent-2) 0, rgba(255,56,199,0.12) 60%, transparent 70%); box-shadow: var(--glow), var(--glow-mag); }
+  .brand span { font-size: 18px; color: var(--text); }
+
+      .stats {
+        display: flex; gap: 10px; align-items: center; font-size: 12px; opacity: 0.9;
+      }
+  .stat { background: rgba(20,23,36,0.8); border: 1px solid rgba(0,229,255,0.2); border-radius: 10px; padding: 6px 10px; min-width: 52px; text-align: center; box-shadow: 0 0 10px rgba(0,229,255,0.15) inset; color: var(--muted); }
+      .controls { display: flex; gap: 8px; align-items: center; }
+  .btn { appearance: none; border: 1px solid rgba(0,229,255,0.35); background: linear-gradient(180deg, #1a1f33, #12172a); color: var(--text); border-radius: 10px; padding: 8px 12px; font-weight: 700; box-shadow: var(--glow); cursor: pointer; }
+      .btn:active { transform: translateY(1px); }
+
+      main { max-width: 760px; margin: 16px auto; padding: 0 16px 28px; }
+
+  .board-wrap { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border-radius: 16px; border: 1px solid rgba(0,229,255,0.25); box-shadow: 0 12px 28px rgba(0,0,0,0.35), inset 0 0 18px rgba(0,229,255,0.08); padding: 16px; margin: 0 auto 16px; max-width: var(--boardW); }
+      .board {
+        display: grid; grid-template-rows: repeat(6, 1fr); gap: 8px;
+        width: 100%; aspect-ratio: 5/6; max-width: 480px; margin: 0 auto;
+      }
+      .row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+
+  .tile { position: relative; display: grid; place-items: center; font-weight: 800; font-size: 28px; color: var(--tile-text); background: linear-gradient(180deg, #1a1f33, #111526); border: 2px solid rgba(0,229,255,0.25); border-radius: 12px; box-shadow: inset 0 0 10px rgba(0,229,255,0.08); text-transform: uppercase; transform-style: preserve-3d; transition: transform 0.3s ease, border-color .2s ease, box-shadow .2s ease; }
+
+      .tile.revealed { transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
+      .tile.flip { transform: rotateX(90deg); }
+
+  .tile.absent { background: #252a3a; color: var(--white); border-color: #394058; }
+  .tile.present { background: #554400; color: #ffe57a; border-color: #ffdc5e; box-shadow: 0 0 10px rgba(255,220,94,0.35); }
+  .tile.correct { background: #003d22; color: #a6ffd0; border-color: var(--correct); box-shadow: 0 0 12px rgba(46,232,101,0.45); }
+  .tile.hint { border-color: var(--accent); box-shadow: 0 0 12px rgba(0,229,255,0.55); }
+
+      .tile.pop { animation: pop 100ms ease-out; }
+      @keyframes pop { 0% { transform: scale(0.9); } 100% { transform: scale(1); } }
+      .row.shake { animation: shake 300ms ease-in-out; }
+      @keyframes shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(3px); } 30%, 50%, 70% { transform: translateX(-5px); } 40%, 60% { transform: translateX(5px);} }
+      .row.bounce { animation: bounce 600ms ease-in-out; }
+      @keyframes bounce { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+      .keyboard { max-width: 520px; margin: 0 auto; display: grid; gap: 8px; }
+      .key-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+  .key { user-select: none; cursor: pointer; text-transform: uppercase; font-weight: 700; font-size: 14px; padding: 12px 6px; text-align: center; border-radius: 10px; color: var(--key-text); background: linear-gradient(180deg, #1a1f33, #12172a); border: 2px solid rgba(0,229,255,0.25); box-shadow: inset 0 0 10px rgba(0,229,255,0.08); }
+      .key:active { transform: translateY(1px); }
+  .key.absent { background: #252a3a; color: var(--white); border-color: #394058; }
+  .key.present { background: #554400; color: #ffe57a; border-color: #ffdc5e; box-shadow: 0 0 10px rgba(255,220,94,0.35) inset; }
+  .key.correct { background: #003d22; color: #a6ffd0; border-color: var(--correct); box-shadow: 0 0 12px rgba(46,232,101,0.45) inset; }
+      .key.wide { grid-column: span 1; font-size: 12px; }
+      .key.backspace { font-size: 12px; }
+      .key[disabled] {
+        pointer-events: none;
+        opacity: 0.6;
+        filter: grayscale(25%);
+        cursor: not-allowed;
+      }
+
+  .toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); background: var(--toast-bg); color: #e6f7ff; padding: 10px 12px; border-radius: 10px; font-weight: 700; box-shadow: 0 0 18px rgba(0,229,255,0.4); opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; z-index: 10000; }
+      .toast.show { opacity: 1; transform: translate(-50%, 4px); }
+
+      /* Side placement relative to centered board */
+      @media (min-width: 900px) {
+        .toast.side { top: 110px; left: 50%; transform: translateX(calc(var(--boardW) / 2 + 44px)); }
+        .toast.side.show { transform: translate(calc(var(--boardW) / 2 + 44px), 4px); }
+        .toast.side.left { transform: translateX(calc(-1 * (var(--boardW) / 2 + 44px))); }
+        .toast.side.left.show { transform: translate(calc(-1 * (var(--boardW) / 2 + 44px)), 4px); }
+      }
+
+      .sr-only { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="brand">
+          <div class="cookie" aria-hidden="true"></div>
+          <span>Neon Wordle</span>
+        </div>
+        <div class="controls">
+          <div class="stats">
+            <div class="stat" title="Games played">GP <span id="stat-played">0</span></div>
+            <div class="stat" title="Win %">W% <span id="stat-win">0</span></div>
+            <div class="stat" title="Current streak">CS <span id="stat-streak">0</span></div>
+            <div class="stat" title="Max streak">MS <span id="stat-max">0</span></div>
+          </div>
+          <button id="btn-hint" class="btn" aria-label="Reveal a letter hint">Hint</button>
+          <button id="btn-new" class="btn" aria-label="Start next word">Next word</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="board-wrap">
+  <div id="board" class="board" role="application" aria-label="Neon Wordle board">
+          <!-- rows/tiles injected -->
+        </div>
+      </div>
+      <div class="keyboard" aria-label="On-screen keyboard">
+        <div class="key-row" id="kb-row-1"></div>
+        <div class="key-row" id="kb-row-2"></div>
+        <div class="key-row" id="kb-row-3"></div>
+      </div>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div class="sr-only" aria-live="polite" id="sr"></div>
+
+  <!-- Embedded word bank (1,500 five-letter words) -->
+  <script id="word-bank" type="text/plain">
+bogum
+osmin
+ratal
+yarns
+iliac
+inglu
+yogas
+ruder
+pendn
+scuse
+stung
+bruet
+makes
+edder
+claus
+carty
+cadis
+sussy
+untap
+omnes
+blued
+hocco
+aking
+bixin
+alapa
+shirt
+druse
+means
+heave
+whiba
+dyker
+tinct
+garad
+shope
+dynel
+glore
+thurm
+merci
+ankou
+flare
+deled
+rates
+praus
+belli
+siroc
+nucin
+goofy
+outgo
+bauds
+forth
+litre
+irido
+assot
+behew
+kunbi
+robot
+nests
+shews
+cloys
+preux
+hemic
+whewl
+yadim
+tacos
+argan
+nasal
+ethal
+thine
+peony
+batan
+awald
+beche
+sappy
+exter
+scour
+hulas
+looch
+tengu
+boggy
+resee
+taino
+sopor
+whilk
+loses
+chubb
+plumb
+abaka
+shiai
+slurs
+ctene
+gipon
+throu
+creta
+clavy
+abaca
+harst
+decil
+fease
+unius
+shode
+yawps
+girns
+wools
+targe
+bunya
+gilia
+thump
+aunts
+ecize
+perla
+needy
+ouvre
+kanap
+wierd
+snuff
+crine
+boomy
+lelia
+gerip
+comme
+hefts
+tacca
+janet
+adaty
+flimp
+dukhn
+parma
+raxes
+abama
+byous
+doree
+sorbs
+cerin
+hangs
+sieur
+lusty
+koels
+doeth
+perks
+undue
+sorry
+topia
+bwana
+fitch
+ghoul
+coati
+ngwee
+irade
+white
+woldy
+mudra
+ixora
+minow
+mawks
+baboo
+eater
+sekos
+seels
+trias
+maxis
+exhbn
+elfin
+wifed
+spuke
+weald
+accra
+bacis
+bathe
+prich
+jeany
+darya
+whish
+nache
+minim
+gully
+kiack
+litra
+plash
+tanto
+ameba
+delfs
+wezen
+coroa
+hazan
+quags
+yogic
+taxin
+tutus
+saris
+doyly
+soury
+kibes
+facto
+nocht
+starn
+shela
+mixed
+mesua
+spake
+cluck
+macer
+gaurs
+gales
+rebid
+whist
+ketch
+cissy
+nebby
+avion
+lukas
+teats
+irous
+hoofy
+hield
+winks
+ceibo
+chott
+epact
+upget
+canes
+fibro
+fiard
+shuck
+saucy
+oiled
+dhobi
+retch
+sfree
+atlas
+unsad
+petos
+susie
+dumas
+whiff
+sooth
+docks
+olchi
+dixie
+jalop
+haole
+utick
+wiyat
+smeek
+terms
+tyche
+foute
+growl
+agria
+terce
+banns
+clyde
+enzym
+suevi
+pomel
+juise
+liest
+cadet
+pases
+ankle
+fouty
+yince
+metae
+ambit
+think
+abash
+prods
+mutes
+filao
+julus
+zakat
+drogh
+peril
+parle
+anorn
+adown
+gobbe
+almon
+highs
+duces
+shapy
+cheke
+hobos
+shojo
+homam
+bajri
+choga
+newer
+yaboo
+twalt
+shaft
+twill
+crudy
+coyed
+yaqui
+gagor
+vills
+basan
+dekle
+urena
+linie
+sayid
+infix
+paiks
+kovil
+romeo
+nikko
+panda
+terre
+tapes
+faery
+keleh
+rogan
+volte
+boles
+haars
+klong
+acnes
+razoo
+sirop
+shure
+loave
+ameer
+chock
+films
+naiad
+fardo
+crews
+teeth
+plupf
+virga
+tarin
+spoon
+temne
+frits
+besan
+rests
+bliss
+lamus
+ramps
+dials
+upend
+awhir
+boosy
+towan
+caste
+bezan
+clara
+absey
+tonka
+aguey
+magna
+easer
+shuln
+poppy
+facer
+trick
+weism
+durio
+slopy
+sapor
+pugil
+kanes
+glues
+stour
+hills
+beryl
+telia
+coony
+aided
+asoak
+polio
+oread
+zande
+abada
+josey
+totty
+tubik
+adrip
+dorse
+justo
+porus
+clunk
+urson
+parch
+swims
+aunty
+cacei
+entad
+steri
+heiau
+adlay
+tapir
+valve
+nogal
+toile
+getic
+nooky
+sloyd
+keten
+ackee
+piuri
+pelfs
+heman
+husky
+vinea
+saple
+brugh
+echar
+burma
+roupy
+proal
+kling
+wacks
+quito
+routh
+utend
+soyot
+zudda
+shole
+odour
+taqua
+shram
+bream
+redip
+vance
+capot
+upper
+brats
+mules
+yawey
+didnt
+sakti
+leiss
+lipin
+maxim
+steem
+avine
+salet
+yerks
+woosh
+cella
+maugh
+equus
+dopas
+proke
+olena
+ankee
+boose
+stage
+tecla
+sharp
+wilco
+nevus
+middy
+azido
+swale
+domic
+urman
+plack
+zazen
+wired
+porte
+bandh
+shrog
+jerky
+scrog
+kyang
+rhino
+sudes
+calef
+culch
+nihal
+dubhe
+ancha
+diane
+anice
+gonof
+amaga
+hents
+manis
+outas
+ortet
+biddy
+ticul
+ormer
+cyrus
+shute
+gledy
+dinic
+bepat
+achen
+prepd
+ayahs
+bedye
+paren
+sorns
+lifts
+enrol
+marga
+pipid
+ardeb
+prese
+suers
+abide
+ceryl
+redox
+anasa
+blats
+trypa
+koala
+nidor
+gleed
+tazza
+ochro
+senna
+necks
+uinal
+stond
+resow
+duler
+human
+pecan
+filea
+droit
+egypt
+davit
+yonic
+navew
+dubby
+enoch
+taich
+loket
+adela
+poked
+pinax
+dooly
+selly
+ikona
+sabik
+arete
+fluey
+goyim
+crept
+undye
+unwax
+abaft
+knars
+palma
+twerp
+tandy
+raffs
+makos
+moong
+agley
+codex
+being
+craft
+mutus
+swain
+faugh
+susan
+kalan
+haled
+plote
+discs
+guiro
+revie
+vomit
+swith
+lapsi
+dsect
+sclat
+ellan
+adrad
+givey
+nappa
+haust
+askew
+halte
+cress
+awalt
+codol
+rheas
+toona
+blair
+cocin
+cassy
+jiber
+saned
+bilby
+labia
+biffy
+unrid
+albas
+pares
+zambo
+hawks
+lotas
+tweeg
+tigua
+pawky
+canon
+wills
+jokey
+jutka
+pfund
+jours
+frosh
+faulx
+witen
+folia
+abets
+tapia
+cerer
+vibes
+poilu
+solan
+unark
+balun
+eider
+tikis
+aweek
+whalp
+slite
+skied
+fusel
+fanti
+couch
+heygh
+aware
+fnese
+kacha
+laved
+henad
+roast
+seige
+bespy
+tikes
+drovy
+abner
+visto
+fibry
+dashy
+inked
+wried
+ghent
+uredo
+pewit
+rasen
+curvy
+currs
+samaj
+yards
+heads
+acorn
+ammer
+daler
+volow
+pecks
+snyed
+bumph
+alkin
+vital
+bubba
+zosma
+bites
+slipe
+upcut
+tarry
+naves
+leppy
+ulnae
+scawd
+smack
+upbar
+wefts
+colas
+hopak
+cagey
+early
+ostia
+klino
+yugas
+raves
+civvy
+whift
+blady
+blate
+skeer
+iambs
+bunks
+smily
+hided
+eveck
+tolly
+lunch
+antic
+torse
+tough
+plays
+zabra
+aeron
+pikey
+bonce
+yacks
+circa
+phons
+dahms
+utchy
+imvia
+cycle
+sensu
+indyl
+jamie
+helge
+ephod
+axman
+juked
+drusy
+aknow
+pgntt
+serra
+stays
+catch
+evens
+barfy
+mobil
+brail
+brawn
+mizzy
+ackey
+irian
+ruffe
+morse
+stive
+yoked
+abuts
+treat
+cager
+ahems
+sighs
+waled
+detur
+thigh
+guyed
+sauty
+mirak
+snick
+herry
+harka
+sider
+holed
+abram
+commy
+quell
+horol
+doddy
+panty
+hiera
+ocque
+rites
+axels
+taste
+mosur
+eaved
+tales
+crank
+alick
+squaw
+roods
+fader
+inert
+halls
+zonta
+idist
+sodio
+murat
+midst
+joram
+nomap
+skell
+guaza
+swimy
+mains
+ancor
+skene
+tawer
+kolis
+mahra
+wheki
+whisk
+bends
+cajon
+thuja
+sasan
+dolls
+stuck
+axial
+rucks
+crena
+lotah
+lupin
+gyrus
+buick
+radar
+adapt
+hiems
+onces
+kolos
+egged
+ianus
+mufti
+broid
+niais
+richt
+jarry
+gibel
+ursae
+nairy
+firer
+orvet
+gaure
+kilij
+alula
+suety
+teres
+jesus
+aspis
+dilly
+parol
+toret
+bovid
+tabel
+duhat
+girly
+tolus
+cants
+skeet
+cocky
+ergot
+talpa
+undry
+waged
+ureas
+npeel
+bolus
+dadas
+vaned
+kulan
+tents
+wheel
+cheir
+thurl
+halma
+kerns
+odeum
+perai
+amess
+imshi
+ahwal
+track
+hendy
+defog
+rhine
+thick
+dinos
+coral
+misky
+unlax
+lango
+syftn
+quawk
+bemas
+antis
+diamb
+crags
+semen
+wauks
+essay
+vizor
+maneh
+linky
+mbaya
+norse
+caner
+sound
+edged
+haram
+bahoe
+girba
+bract
+osset
+zones
+youth
+speel
+hairs
+umbre
+situs
+sleer
+final
+palus
+jixie
+hilsa
+piend
+gains
+tuned
+babis
+pixie
+loams
+swots
+kiddo
+voraz
+stold
+pavan
+jager
+retro
+batch
+mulls
+merge
+hauls
+rutch
+burnt
+metis
+wride
+yerth
+ashet
+softy
+elses
+baulk
+arise
+bares
+nabby
+meter
+axled
+oskar
+lanas
+snowk
+ozone
+sansi
+mnium
+pipal
+trode
+cirri
+corps
+clake
+grips
+funky
+wawls
+tiraz
+lurks
+greek
+gombo
+mowse
+feres
+lebes
+chafe
+taupo
+actos
+gryph
+pinic
+carya
+nonas
+yeans
+flosh
+soaks
+bokom
+duddy
+ainus
+ordos
+truff
+boral
+oobit
+baler
+mauts
+teams
+quins
+pulas
+atomy
+belts
+bensh
+hoked
+tinne
+klosh
+amins
+pozzy
+mater
+twirk
+resup
+dolph
+cymar
+cotes
+cnida
+vireo
+mesem
+wolfs
+orrow
+goter
+pekoe
+tiwaz
+shots
+limby
+spire
+afoot
+velic
+nandu
+plotx
+sepad
+waxen
+naias
+keats
+hdqrs
+grith
+gyral
+rubia
+clamp
+widen
+snirl
+kales
+fulah
+nunce
+glink
+flews
+thatd
+racon
+micra
+magic
+sergt
+venom
+piles
+boars
+maida
+dansy
+murga
+teuch
+arroz
+ranty
+khaja
+ingan
+curds
+pinny
+skelf
+conal
+andia
+kench
+scrub
+unoil
+jatni
+mirks
+iliad
+dicer
+alisp
+snaws
+hidel
+argid
+shedu
+laius
+patin
+leeky
+lassu
+kilts
+faffy
+algas
+trois
+bikie
+flour
+irwin
+neuma
+roily
+eoith
+joree
+salem
+mewer
+nowch
+talas
+khadi
+essee
+wicht
+april
+propr
+kamao
+hypos
+panne
+beedi
+antas
+tirer
+spole
+seven
+saruk
+liles
+soppy
+bagre
+adnex
+leggy
+knaps
+afars
+pards
+hubba
+drawk
+oyana
+jerez
+cavum
+teffs
+spale
+cobbs
+excel
+talar
+ising
+pilar
+moray
+picky
+unbet
+purdy
+lever
+ogmic
+purrs
+blimp
+bivvy
+harry
+codal
+easel
+lipse
+wited
+fells
+terry
+freer
+lanny
+greys
+vadim
+vepse
+comus
+noise
+birri
+kumys
+gouda
+snake
+lindo
+cedry
+kiosk
+sheal
+krang
+chufa
+laced
+siena
+jells
+inbye
+mesas
+riffi
+volti
+newar
+yowls
+retip
+kinky
+amyls
+dorey
+meeks
+idest
+nevat
+blond
+laxly
+dinka
+chert
+regga
+spans
+david
+asper
+unmix
+haire
+kreis
+based
+bunty
+ripup
+polka
+babes
+gauzy
+hyrst
+arase
+carer
+hodad
+toppy
+kakan
+vigil
+ahunt
+brahm
+untar
+johan
+blame
+cajun
+rangy
+ritsu
+fluer
+knell
+mages
+covin
+galbe
+tythe
+telex
+diked
+munge
+lemna
+noons
+sawny
+towns
+hange
+alday
+eyass
+ansel
+fiefs
+coyer
+chips
+scree
+ossal
+lined
+agape
+roars
+clack
+giust
+gebur
+brute
+sahib
+purls
+doura
+goety
+snark
+kines
+reefs
+acini
+sanct
+woons
+arnee
+woken
+loren
+cravo
+rinde
+skirp
+sobby
+oinks
+volar
+larus
+owght
+badan
+toner
+rehem
+hault
+fices
+galen
+podia
+addio
+cours
+orlop
+umset
+tupek
+vouge
+neela
+chica
+rudas
+lulav
+gripe
+wrest
+suits
+crush
+penup
+molle
+campa
+nonce
+shell
+macao
+level
+spurt
+stang
+skite
+labis
+flied
+topic
+filii
+cooba
+corky
+hertz
+icily
+zogan
+sumph
+helot
+arose
+maney
+recta
+choel
+kioko
+kappe
+canny
+shisn
+linda
+cloit
+point
+halke
+grume
+matta
+butut
+snies
+agons
+monte
+rizar
+fatal
+capri
+stacc
+hondo
+senit
+mixer
+agrom
+schmo
+tempe
+vodum
+glume
+takin
+began
+palch
+schul
+ferry
+braca
+seppa
+milos
+vomer
+lapse
+shoji
+pungs
+nahum
+levir
+chris
+colet
+trona
+slonk
+spats
+mammy
+quila
+korai
+ghees
+pocan
+parts
+theah
+skeps
+salpa
+yeara
+unist
+steek
+kusso
+pater
+toity
+pinus
+pyral
+warns
+kodro
+fares
+tails
+slive
+foots
+unbow
+datos
+inane
+yerba
+rotta
+monas
+pulli
+flowk
+thawn
+preys
+hames
+bunts
+beard
+manet
+sails
+night
+sired
+quirt
+felty
+gleek
+raker
+katun
+pirot
+genic
+still
+wooly
+defis
+natty
+lochy
+wharl
+blirt
+badly
+kniaz
+shorl
+reast
+gonia
+spath
+ruses
+phone
+knick
+scorn
+litus
+cedes
+gater
+benne
+halve
+hulch
+coran
+treen
+coder
+prior
+crate
+ponce
+voted
+haste
+surfs
+amlet
+whoso
+cubit
+payni
+damon
+birls
+cooja
+heize
+engem
+ducks
+fetal
+troft
+lists
+cetus
+begar
+warts
+shick
+aloes
+gamic
+yukon
+crips
+micks
+avera
+cruel
+jebus
+uplit
+feuar
+vines
+beice
+lutea
+darks
+surds
+tidal
+celom
+fator
+gleit
+paeon
+cumin
+suine
+suant
+hotel
+darci
+abkar
+swags
+taula
+padre
+lauds
+lamby
+lough
+isize
+butyn
+heezy
+valmy
+misdo
+yules
+mangi
+scian
+olepy
+tints
+jowpy
+nanny
+logan
+zapus
+flick
+grana
+ofter
+milko
+gecko
+sties
+eucre
+inket
+salle
+adeem
+wowed
+sleds
+caman
+arter
+guise
+gotos
+orage
+orlon
+piezo
+cries
+staff
+loran
+forky
+samal
+quave
+agata
+stilb
+ganev
+  </script>
+
+    <script>
+      // Parse embedded bank to ensure exactly the requested 1,500 five-letter words are used
+      const WORDS = document.getElementById('word-bank').textContent
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      // --- Game constants ---
+      const ROWS = 6; const COLS = 5;
+      const boardEl = document.getElementById('board');
+      const toastEl = document.getElementById('toast');
+      const srEl = document.getElementById('sr');
+      const btnNew = document.getElementById('btn-new');
+  const btnHint = document.getElementById('btn-hint');
+
+      // Stats
+      const statPlayed = document.getElementById('stat-played');
+      const statWin = document.getElementById('stat-win');
+      const statStreak = document.getElementById('stat-streak');
+      const statMax = document.getElementById('stat-max');
+
+  // We allow any 5-letter alphabetic guess per request (not restricted to word list)
+
+      function saveStats(s){ localStorage.setItem('cookie_wordle_stats', JSON.stringify(s)); }
+      function loadStats(){
+        try { return JSON.parse(localStorage.getItem('cookie_wordle_stats')) || { played: 0, wins: 0, streak: 0, maxStreak: 0 }; }
+        catch { return { played: 0, wins: 0, streak: 0, maxStreak: 0 }; }
+      }
+      let stats = loadStats();
+      function renderStats(){
+        statPlayed.textContent = String(stats.played);
+        statWin.textContent = stats.played ? String(Math.round((stats.wins / stats.played) * 100)) : '0';
+        statStreak.textContent = String(stats.streak);
+        statMax.textContent = String(stats.maxStreak);
+      }
+      renderStats();
+
+      // Board generation
+      const rows = [];
+      const tiles = [];
+      for (let r = 0; r < ROWS; r++) {
+        const row = document.createElement('div'); row.className = 'row'; rows.push(row);
+        const rowTiles = [];
+        for (let c = 0; c < COLS; c++) {
+          const t = document.createElement('div'); t.className = 'tile'; t.setAttribute('data-row', r); t.setAttribute('data-col', c);
+          // Unique cookie speckle pattern per tile via deterministic RNG
+          let seed = (r * COLS + c + 1) * 97;
+          const rng = () => { const s = Math.sin(seed++) * 10000; return s - Math.floor(s); };
+          const rand = (a,b) => a + rng() * (b - a);
+          t.style.setProperty('--t-s1r', `${Math.round(rand(6,10))}px`);
+          t.style.setProperty('--t-s1x', `${Math.round(rand(55,80))}%`);
+          t.style.setProperty('--t-s1y', `${Math.round(rand(20,60))}%`);
+          t.style.setProperty('--t-s1a', `${rand(0.15,0.30).toFixed(2)}`);
+          t.style.setProperty('--t-s2r', `${Math.round(rand(4,8))}px`);
+          t.style.setProperty('--t-s2x', `${Math.round(rand(20,50))}%`);
+          t.style.setProperty('--t-s2y', `${Math.round(rand(50,85))}%`);
+          t.style.setProperty('--t-s2a', `${rand(0.12,0.24).toFixed(2)}`);
+          t.style.setProperty('--t-s3r', `${Math.round(rand(3,7))}px`);
+          t.style.setProperty('--t-s3x', `${Math.round(rand(35,60))}%`);
+          t.style.setProperty('--t-s3y', `${Math.round(rand(15,40))}%`);
+          t.style.setProperty('--t-s3a', `${rand(0.15,0.26).toFixed(2)}`);
+          t.style.setProperty('--t-s4r', `${Math.round(rand(3,6))}px`);
+          t.style.setProperty('--t-s4x', `${Math.round(rand(55,75))}%`);
+          t.style.setProperty('--t-s4y', `${Math.round(rand(55,85))}%`);
+          t.style.setProperty('--t-s4a', `${rand(0.12,0.22).toFixed(2)}`);
+          row.appendChild(t); rowTiles.push(t);
+        }
+        tiles.push(rowTiles); boardEl.appendChild(row);
+      }
+
+      // Keyboard
+      const kb1 = 'qwertyuiop'.split('');
+      const kb2 = 'asdfghjkl'.split('');
+      const kb3 = ['enter', ...'zxcvbnm'.split(''), 'back'];
+      const kbRows = [document.getElementById('kb-row-1'), document.getElementById('kb-row-2'), document.getElementById('kb-row-3')];
+      const keyButtons = new Map();
+      function mkKey(label) {
+        const b = document.createElement('button');
+        b.className = 'key' + (label==='enter' || label==='back' ? ' wide' : '');
+        b.textContent = label === 'back' ? '⌫' : (label === 'enter' ? 'Enter' : label);
+        b.setAttribute('data-key', label);
+        b.addEventListener('click', () => onKey(label));
+        // Unique cookie look for each key
+  const seedBase = label.split('').reduce((acc,ch,i)=> acc + ch.charCodeAt(0)*(i+1), 0) + 13;
+  let seed = seedBase;
+  const rng = () => { const s = Math.sin(seed++) * 10000; return s - Math.floor(s); };
+  const rand = (a,b) => a + rng()*(b-a);
+  b.style.setProperty('--k-s1r', `${Math.round(rand(5,8))}px`);
+  b.style.setProperty('--k-s1x', `${Math.round(rand(65,90))}%`);
+  b.style.setProperty('--k-s1y', `${Math.round(rand(15,45))}%`);
+  b.style.setProperty('--k-s1a', `${rand(0.18,0.28).toFixed(2)}`);
+  b.style.setProperty('--k-s2r', `${Math.round(rand(4,7))}px`);
+  b.style.setProperty('--k-s2x', `${Math.round(rand(20,45))}%`);
+  b.style.setProperty('--k-s2y', `${Math.round(rand(55,85))}%`);
+  b.style.setProperty('--k-s2a', `${rand(0.12,0.22).toFixed(2)}`);
+        keyButtons.set(label, b);
+        return b;
+      }
+      kb1.forEach(k => kbRows[0].appendChild(mkKey(k)));
+      kb2.forEach(k => kbRows[1].appendChild(mkKey(k)));
+      kb3.forEach(k => kbRows[2].appendChild(mkKey(k)));
+
+      // Game state
+  let solution = pick(WORDS);
+      let curRow = 0; let curCol = 0; let locked = false; let finished = false;
+  let hintCol = -1; let hintChar = '';
+  let knownLetters = new Set(); // letters the player has already revealed (yellow or green)
+  let knownCorrectPos = new Array(COLS).fill(false); // columns already solved (green)
+  const disabledLetters = new Set(); // letters marked absent for this round
+      function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+      function resetGame(newSolution = pick(WORDS)){
+  solution = newSolution; curRow = 0; curCol = 0; locked = false; finished = false; hintCol = -1; hintChar = '';
+  knownLetters = new Set(); knownCorrectPos = new Array(COLS).fill(false);
+        disabledLetters.clear();
+        rows.forEach(r => { r.classList.remove('shake','bounce'); });
+        tiles.flat().forEach(t => { t.textContent = ''; t.className = 'tile'; t.removeAttribute('data-state'); });
+        keyButtons.forEach(b => { b.classList.remove('absent','present','correct'); b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); b.dataset.state = 'none'; });
+        if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
+        announce(`New word. Start guessing.`);
+      }
+
+      btnNew.addEventListener('click', () => { if (locked) return; resetGame(); });
+      btnHint.addEventListener('click', () => {
+  if (locked || finished) return;
+        if (hintCol !== -1) { showToast('Hint already used'); return; }
+        // Pick a column that is not already solved (green) and whose solution letter hasn't been revealed (no yellow/green yet)
+        const candidates = [];
+        for (let c=0;c<COLS;c++) {
+          const ch = solution[c];
+          if (!knownCorrectPos[c] && !knownLetters.has(ch)) candidates.push(c);
+        }
+        if (candidates.length === 0) { showToast('No new hint available'); return; }
+        const col = candidates[Math.floor(Math.random()*candidates.length)];
+        hintCol = col; hintChar = solution[col];
+  // Fill and lock current and future rows at that column with the revealed char
+  for (let r=curRow;r<ROWS;r++) {
+          const t = tiles[r][col];
+          t.textContent = hintChar.toUpperCase();
+          t.classList.add('hint');
+          t.setAttribute('data-hint','1');
+        }
+        // If current cursor was at hint column, move forward
+  if (curCol === hintCol) curCol = Math.min(curCol+1, COLS);
+  if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
+        showToast(`Hint: ${hintChar.toUpperCase()} is in position ${col+1}`);
+      });
+
+      function showToast(msg, ms=1200) {
+        toastEl.textContent = msg;
+        const wide = window.matchMedia('(min-width: 900px)').matches;
+        if (wide) {
+          const wrap = boardEl.closest('.board-wrap') || boardEl;
+          const rect = wrap.getBoundingClientRect();
+          const spaceLeft = rect.left;
+          const spaceRight = window.innerWidth - rect.right;
+          const placeLeft = spaceLeft > spaceRight; // choose side with more space
+          toastEl.classList.add('side');
+          toastEl.classList.toggle('left', placeLeft);
+        } else {
+          toastEl.classList.remove('side');
+          toastEl.classList.remove('left');
+        }
+        toastEl.classList.add('show');
+        clearTimeout(showToast._t); showToast._t = setTimeout(() => toastEl.classList.remove('show'), ms);
+      }
+      function announce(msg){ srEl.textContent = msg; }
+
+      function setTile(r,c,ch){ const t = tiles[r][c]; t.textContent = ch.toUpperCase(); t.classList.add('pop'); setTimeout(()=>t.classList.remove('pop'), 100); }
+      function clearTile(r,c){ const t = tiles[r][c]; t.textContent=''; }
+
+      function onKey(k){
+        if (locked) return;
+        if (finished) return; // wait for Next word
+        if (k === 'enter') return submitGuess();
+        if (k === 'back') return backspace();
+        if (/^[a-z]$/.test(k)) {
+          if (disabledLetters.has(k)) return; // don't allow absent letters this round
+          if (curCol < COLS) {
+            // Skip locked hint column
+            if (hintCol !== -1 && curCol === hintCol) curCol++;
+            if (curCol < COLS) { setTile(curRow, curCol, k); curCol++; }
+          }
+        }
+      }
+
+      function backspace(){
+        if (curCol>0) {
+          // If previous is hint column, step back twice
+          if (hintCol !== -1 && curCol-1 === hintCol) { curCol -= 2; }
+          else { curCol--; }
+          if (curCol < 0) { curCol = 0; return; }
+          // Avoid clearing hint cell
+          if (hintCol !== -1 && curCol === hintCol) return;
+          clearTile(curRow, curCol);
+        }
+      }
+
+      function getGuess(r){ return tiles[r].map(t => (t.textContent||'').toLowerCase()).join(''); }
+
+      function submitGuess(){
+        const guess = getGuess(curRow);
+        if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
+        // Accept any 5-letter alphabetic guess
+        if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use letters A–Z'); return; }
+        // Enforce hint position if used
+        if (hintCol !== -1 && guess[hintCol] !== hintChar) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast(`The ${hintCol+1}ᵗʰ letter must be ${hintChar.toUpperCase()}`); return; }
+        revealRow(guess);
+      }
+
+      function computeResult(guess, answer){
+        // Wordle letter eval with duplicates
+        const res = new Array(COLS).fill('absent');
+        const counts = new Map();
+        for (let i=0;i<COLS;i++) { const a = answer[i]; counts.set(a, (counts.get(a)||0)+1); }
+        // First pass: correct
+        for (let i=0;i<COLS;i++) {
+          if (guess[i] === answer[i]) { res[i] = 'correct'; counts.set(guess[i], counts.get(guess[i]) - 1); }
+        }
+        // Second pass: present
+        for (let i=0;i<COLS;i++) {
+          if (res[i] === 'correct') continue;
+          const g = guess[i];
+          if ((counts.get(g)||0) > 0) { res[i] = 'present'; counts.set(g, counts.get(g)-1); }
+        }
+        return res;
+      }
+
+      function updateKeyboard(guess, result){
+        const rank = { none: -1, absent: 0, present: 1, correct: 2 };
+        for (let i=0;i<COLS;i++){
+          const ch = guess[i]; const b = keyButtons.get(ch); if (!b) continue;
+          const r = result[i];
+          const cur = b.dataset.state || 'none';
+          if (rank[r] > rank[cur]) {
+            b.dataset.state = r;
+            b.classList.remove('absent','present','correct');
+            b.classList.add(r);
+          }
+          // Disable absent letters for the rest of the round; re-enable if later upgraded
+          const state = b.dataset.state;
+          if (state === 'absent') { b.setAttribute('disabled',''); b.setAttribute('aria-disabled','true'); disabledLetters.add(ch); }
+          else if (state === 'present' || state === 'correct') { b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); disabledLetters.delete(ch); }
+        }
+      }
+
+      function revealRow(guess){
+        locked = true;
+  const res = computeResult(guess, solution);
+  const rowTiles = tiles[curRow];
+  // Remove hint highlight from the row being revealed so state colors show clearly
+  rowTiles.forEach(t => t.classList.remove('hint'));
+        rowTiles.forEach(t => t.classList.add('revealed'));
+        // flip each with delay
+        res.forEach((state, i) => {
+          setTimeout(() => {
+            const t = rowTiles[i];
+            t.classList.add('flip');
+            setTimeout(() => {
+              t.classList.remove('flip');
+              t.classList.add(state);
+              t.setAttribute('data-state', state);
+              if (i === COLS-1) { // last
+                updateKeyboard(guess, res);
+                afterReveal(guess, res);
+              }
+            }, 300);
+          }, i * 260);
+        });
+      }
+
+      function afterReveal(guess, res){
+        // Update knowledge from this row's result
+        for (let i=0;i<COLS;i++) {
+          if (res[i] === 'correct') { knownCorrectPos[i] = true; knownLetters.add(guess[i]); }
+          else if (res[i] === 'present') { knownLetters.add(guess[i]); }
+        }
+        const win = res.every(s => s === 'correct');
+        if (win) {
+          rows[curRow].classList.add('bounce');
+          finished = true; locked = false;
+          stats.played++; stats.wins++; stats.streak++; stats.maxStreak = Math.max(stats.maxStreak, stats.streak); saveStats(stats); renderStats();
+          showToast(['Nice!','Clean!','Sharp!','Neon!'][Math.floor(Math.random()*4)], 1400);
+          announce('You guessed it!');
+          return;
+        }
+
+        curRow++; curCol = 0; locked = false;
+        // If hint is active, prefill the next row's hint cell and place cursor after it
+        if (!finished && hintCol !== -1 && curRow < ROWS) {
+          const t = tiles[curRow][hintCol];
+          t.textContent = hintChar.toUpperCase();
+          t.classList.add('hint'); t.setAttribute('data-hint','1');
+          // Place cursor at the first editable cell (leftmost non-hint column)
+          curCol = hintCol === 0 ? 1 : 0;
+        }
+        if (curRow >= ROWS) {
+          finished = true; stats.played++; stats.streak = 0; saveStats(stats); renderStats();
+          showToast(`The word was "${solution.toUpperCase()}"`, 1800);
+          announce(`Game over. The word was ${solution}.`);
+        }
+      }
+
+      // Physical keyboard
+      window.addEventListener('keydown', (e) => {
+        const k = e.key.toLowerCase();
+        if (k === 'enter') onKey('enter');
+        else if (k === 'backspace' || k === 'delete') onKey('back');
+        else if (k.length === 1 && k >= 'a' && k <= 'z') onKey(k);
+      });
+
+      // Helper: small seed of solved word in console for testing (comment out in prod)
+      // console.log('Solution:', solution);
+
+      // Start fresh board
+      resetGame(solution);
+    </script>
+  </body>
+</html>
