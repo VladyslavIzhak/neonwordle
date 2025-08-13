@@ -486,18 +486,18 @@
         constructor(cfg){ super(cfg); this.isSecure = true; }
         async exists(nick){ try { const { data, error } = await this.sb.from('leaderboard_players').select('nick').eq('nick', nick).limit(1); if (error) return false; return Array.isArray(data) && data.length>0; } catch { return false; } }
         async register(nick){ await this.rpc('set_nick', { p_nick: nick }); return true; }
-        async upsert(_nick, _totals){ /* server computes totals; no-op here */ return true; }
-        async delete(_nick){ /* not supported securely; no-op */ return true; }
-        async list(){ return this.select('leaderboard_players', 'nick,wins,played'); }
-        async submitNormal(win){ await this.rpc('submit_normal_result', { p_win: !!win }); }
+  async upsert(_nick, _totals){ /* server computes totals; no-op here */ return true; }
+  async delete(_nick){ /* not supported securely; no-op */ return true; }
+  async list(){ return this.select('leaderboard_players', 'nick,wins,played'); }
+  async submitNormal(win){ const nick = (typeof playerNick !== 'undefined' && playerNick) ? playerNick : null; await this.rpc('submit_normal_result', { p_nick: nick, p_win: !!win }); }
       }
 
       class SupabaseSecureDaily extends SupabaseSecureBase {
         constructor(cfg){ super(cfg); this.isSecure = true; }
         async get(nick){ const rows = await this.select('leaderboard_daily', 'nick,streak,today_rows,last_played', { nick }); return rows && rows[0] || null; }
         async delete(_nick){ /* not supported securely; no-op */ return true; }
-        async upsertResult(_nick, payload){ return this.submitDaily(!!payload.win, payload.attempts|0); }
-        async submitDaily(win, attempts){ await this.rpc('submit_daily_result', { p_win: !!win, p_attempts: attempts|0 }); }
+  async upsertResult(_nick, payload){ return this.submitDaily(!!payload.win, payload.attempts|0); }
+  async submitDaily(win, attempts){ const nick = (typeof playerNick !== 'undefined' && playerNick) ? playerNick : null; await this.rpc('submit_daily_result', { p_nick: nick, p_win: !!win, p_attempts: attempts|0 }); }
         async list(){ return this.select('leaderboard_daily', 'nick,streak,today_rows,last_played'); }
       }
 
