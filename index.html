@@ -821,7 +821,9 @@
           if (hasPlayedDailyToday(playerNick, todayTry)) {
             lockDailyForToday(cached);
           } else {
-            showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none'; resetGame(cached.toLowerCase());
+            locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
+            if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
+            resetGame(cached.toLowerCase());
           }
         }
       } catch {}
@@ -839,9 +841,9 @@
     if (hasPlayedDailyToday(playerNick, today)) {
       lockDailyForToday(word);
     } else {
-  // Ensure board and keyboard are visible
-  showPlayfield();
-  if (dailyResultBox) dailyResultBox.style.display = 'none';
+      // Ensure board and keyboard are visible and unlocked
+      locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
+      if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
       resetGame(word);
     }
   }
@@ -996,7 +998,8 @@
       function clearTile(r,c){ const t = tiles[r][c]; t.textContent=''; }
 
       function onKey(k){
-  if (locked) return;
+        // Allow input if not finished and not daily-locked
+        if (locked) return;
   if (!playerNick) { ensureNickname(); return; }
         if (finished) return; // wait for Next word
         if (k === 'enter') return submitGuess();
@@ -1026,9 +1029,9 @@
       function getGuess(r){ return tiles[r].map(t => (t.textContent||'').toLowerCase()).join(''); }
 
       function submitGuess(){
-  if (!playerNick) { ensureNickname(); return; }
-      // Block input if already played daily today
-      if (mode === MODE_DAILY && isDailyLockedForToday(playerNick)) { showToast('You already played today'); return; }
+        if (!playerNick) { ensureNickname(); return; }
+        // Block input only if they truly played today with a valid nick
+        if (mode === MODE_DAILY && isDailyLockedForToday(playerNick)) { showToast('You already played today'); return; }
         const guess = getGuess(curRow);
         if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
   // Accept only real English words of current mode length
@@ -1209,9 +1212,8 @@
               dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
               setDailyPlayedToday(playerNick, dateIso);
             }
-            // If we're in daily mode or will switch into it later, prepare the banner
-            // Only show banner immediately if already in Daily mode
-            if (mode === MODE_DAILY) {
+            // Only show today's banner immediately if already in Daily mode and the forfeit is for today
+            if (mode === MODE_DAILY && dateIso === todayIso) {
               try {
                 const cached = localStorage.getItem(`daily_word_${todayIso}`);
                 if (cached) { lockDailyForToday(cached); }
@@ -1254,7 +1256,11 @@
   function setDailyPlayedToday(nick, dateIso){ try { localStorage.setItem(dailyStatusKey(nick), JSON.stringify({ dateIso })); } catch {} }
   function getDailyStatus(nick){ try { return JSON.parse(localStorage.getItem(dailyStatusKey(nick))||'null'); } catch { return null; } }
   function hasPlayedDailyToday(nick, todayIso){ const s = getDailyStatus(nick); return !!(s && s.dateIso === todayIso); }
-  function isDailyLockedForToday(nick){ const today = toKyivDate(new Date()).iso; return hasPlayedDailyToday(nick, today); }
+  function isDailyLockedForToday(nick){
+    const today = toKyivDate(new Date()).iso;
+    if (!nick || !nick.trim()) return false;
+    return hasPlayedDailyToday(nick, today);
+  }
   function lockDailyForToday(word){
     // Hide board grid and disable keyboard, show result banner
   hidePlayfield();
