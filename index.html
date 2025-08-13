@@ -196,6 +196,7 @@
           <button id="btn-hint" class="btn" aria-label="Reveal a letter hint">Hint</button>
           <button id="btn-new" class="btn" aria-label="Start next word">Next word</button>
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
+          <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
         </div>
       </div>
     </header>
@@ -1812,6 +1813,7 @@ ganev
 
       // --- Leaderboard and nickname gating ---
       const btnLeader = document.getElementById('btn-leader');
+  const btnChangeNick = document.getElementById('btn-change-nick');
       const sidebarEl = document.getElementById('sidebar');
       const leaderBody = document.getElementById('leader-tbody');
       const leaderBodyModal = document.getElementById('leader-tbody-modal');
@@ -1945,6 +1947,12 @@ ganev
       nickInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter') { e.preventDefault(); trySaveNick(); } });
       btnLeader.addEventListener('click', ()=> openModal(modalLeader));
       document.getElementById('leader-close').addEventListener('click', ()=> closeModal(modalLeader));
+      btnChangeNick.addEventListener('click', ()=>{
+        // Clear in-memory and stored nick and prompt again
+        playerNick = '';
+        localStorage.removeItem('player_nick');
+        ensureNickname();
+      });
 
       function renderLeaderRows(rows){
         const make = (arr) => arr.map(p => `<tr><td>${sanitize(p.nick)}</td><td class="col-r">${p.wins}</td><td class="col-r">${p.played?Math.round((p.wins/p.played)*100):0}</td></tr>`).join('');
