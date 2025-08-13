@@ -184,7 +184,7 @@
           <div class="cookie" aria-hidden="true"></div>
           <span>Neon Wordle</span>
         </div>
-        <div class="controls">
+  <div class="controls">
           <div class="stats">
             <div class="stat" title="Games played">GP <span id="stat-played">0</span></div>
             <div class="stat" title="Win %">W% <span id="stat-win">0</span></div>
@@ -197,13 +197,14 @@
           <button id="btn-normal" class="btn" style="display:none" title="Switch to Normal Mode">Normal Mode</button>
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
           <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
+          <span id="nick-badge" style="margin-left:6px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px;">Guest</span>
         </div>
       </div>
     </header>
 
     <!-- Daily countdown timer area -->
     <div id="daily-timer-wrap" style="display:none; width:100%; background: linear-gradient(180deg, rgba(0,229,255,0.08), rgba(255,56,199,0.06)); border-bottom:1px solid rgba(0,229,255,0.18);">
-      <div style="max-width:760px; margin:0 auto; padding:8px 16px; display:flex; align-items:center; gap:10px;">
+      <div style="max-width:760px; margin:0 auto; padding:8px 16px; display:flex; align-items:center; justify-content:center; gap:10px; text-align:center;">
         <strong style="letter-spacing:.4px;">Daily Mode</strong>
         <span id="daily-timer" style="color:var(--muted)">Next word in 00:00:00</span>
       </div>
@@ -228,8 +229,12 @@
   <div id="board" class="board" role="application" aria-label="Neon Wordle board">
           <!-- rows/tiles injected -->
         </div>
+            <!-- Daily result banner (shown after playing the daily) -->
+            <div id="daily-result" style="display:none; text-align:center; padding:14px; font-weight:800; border:1px dashed rgba(0,229,255,0.35); border-radius:12px; margin-top:8px;">
+              <span id="daily-result-text">The word of the day was: </span>
+            </div>
           </div>
-          <div class="keyboard" aria-label="On-screen keyboard">
+          <div id="keyboard" class="keyboard" aria-label="On-screen keyboard">
             <div class="key-row" id="kb-row-1"></div>
             <div class="key-row" id="kb-row-2"></div>
             <div class="key-row" id="kb-row-3"></div>
@@ -237,6 +242,10 @@
         </section>
       </div>
     </main>
+
+    <footer style="width:100%; text-align:center; color:var(--muted); font-size:12px; padding:12px 8px; opacity:0.85;">
+      v1.0 by Yozhik
+    </footer>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div class="sr-only" aria-live="polite" id="sr"></div>
@@ -552,6 +561,7 @@
           }
           pendingOldNick = null;
           refreshLeaderboard();
+          renderNickBadge();
         } catch (e) {
           nickError.textContent = 'Could not reserve nickname. Try again.'; nickError.style.display = 'block';
         }
@@ -566,6 +576,7 @@
         playerNick = '';
         localStorage.removeItem('player_nick');
         ensureNickname();
+        renderNickBadge();
       });
 
       function renderLeaderRows(rows){
@@ -626,6 +637,10 @@
   const btnNormal = document.getElementById('btn-normal');
   const dailyTimerWrap = document.getElementById('daily-timer-wrap');
   const dailyTimerEl = document.getElementById('daily-timer');
+  const dailyResultBox = document.getElementById('daily-result');
+  const dailyResultText = document.getElementById('daily-result-text');
+  const keyboardWrap = document.getElementById('keyboard');
+  const nickBadge = document.getElementById('nick-badge');
 
       // Stats
       const statPlayed = document.getElementById('stat-played');
@@ -800,8 +815,16 @@
     const word = window._DICT6_ARR[idx];
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-    // Reset game with chosen word
-    resetGame(word);
+    // If already played today, lock and show banner; else start the round
+    if (hasPlayedDailyToday(playerNick, today)) {
+      lockDailyForToday(word);
+    } else {
+      // Ensure board and keyboard are visible
+      boardEl.style.display = '';
+      if (keyboardWrap) keyboardWrap.style.pointerEvents = '';
+      if (dailyResultBox) dailyResultBox.style.display = 'none';
+      resetGame(word);
+    }
   }
 
   function enterDaily(){
@@ -809,8 +832,8 @@
     btnDaily.style.display = 'none'; btnNormal.style.display = 'inline-flex';
     // Grid styles
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-    // Disable Next random; keep as restart for same daily word
-    btnNew.textContent = 'Restart';
+  // No restart/next in Daily mode
+  btnNew.style.display = 'none';
     // Load dict6 and set today word
     if (!dict6Ready) loadDict6();
   resetDailyStreakIfMissed().finally(()=>{ setupDailyWord(); });
@@ -823,7 +846,11 @@
     btnDaily.style.display = 'inline-flex'; btnNormal.style.display = 'none';
     if (COLS !== 5) { COLS = 5; rebuildBoard(); }
     stopDailyCountdown();
-    btnNew.textContent = 'Next word';
+  btnNew.textContent = 'Next word'; btnNew.style.display = 'inline-flex';
+  // Restore board visibility
+  boardEl.style.display = '';
+  if (keyboardWrap) keyboardWrap.style.pointerEvents = '';
+  if (dailyResultBox) dailyResultBox.style.display = 'none';
     resetGame();
   refreshLeaderboard();
   }
@@ -979,6 +1006,8 @@
 
       function submitGuess(){
   if (!playerNick) { ensureNickname(); return; }
+      // Block input if already played daily today
+      if (mode === MODE_DAILY && isDailyLockedForToday(playerNick)) { showToast('You already played today'); return; }
         const guess = getGuess(curRow);
         if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
   // Accept only real English words of current mode length
@@ -1074,15 +1103,21 @@
         if (win) {
           rows[curRow].classList.add('bounce');
           finished = true; locked = false;
-          stats.played++; stats.wins++; stats.streak++; stats.maxStreak = Math.max(stats.maxStreak, stats.streak); saveStats(stats); renderStats();
-          // push leaderboard totals
-          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          // Only update normal stats/leaderboard in Normal mode
+          if (mode === MODE_NORMAL) {
+            stats.played++; stats.wins++; stats.streak++; stats.maxStreak = Math.max(stats.maxStreak, stats.streak); saveStats(stats); renderStats();
+            if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          }
           // Clear any pending forfeit (round concluded)
           localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
           if (mode === MODE_DAILY && playerNick) {
             const todayIso = toKyivDate(new Date()).iso;
             const attempts = curRow + 1; // rows used to win
-            dailyProvider.upsertResult(playerNick, { win: true, attempts, dateIso: todayIso }).then(refreshLeaderboard).catch(()=>{});
+            dailyProvider.upsertResult(playerNick, { win: true, attempts, dateIso: todayIso }).then(()=>{
+              setDailyPlayedToday(playerNick, todayIso);
+              lockDailyForToday(solution);
+              refreshLeaderboard();
+            }).catch(()=>{ setDailyPlayedToday(playerNick, todayIso); lockDailyForToday(solution); });
           }
           showToast(['Nice!','Clean!','Sharp!','Neon!'][Math.floor(Math.random()*4)], 1400);
           announce('You guessed it!');
@@ -1099,15 +1134,19 @@
           curCol = hintCol === 0 ? 1 : 0;
         }
         if (curRow >= ROWS) {
-          finished = true; stats.played++; stats.streak = 0; saveStats(stats); renderStats();
-          // push leaderboard totals (loss)
-          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          finished = true;
+          if (mode === MODE_NORMAL) { stats.played++; stats.streak = 0; saveStats(stats); renderStats(); }
+          // push leaderboard totals (loss) only in Normal mode
+          if (mode === MODE_NORMAL && playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           // Clear any pending forfeit (round concluded)
           localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
           if (mode === MODE_DAILY && playerNick) {
             const todayIso = toKyivDate(new Date()).iso;
-            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).catch(()=>{});
-            refreshLeaderboard();
+            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).finally(()=>{
+              setDailyPlayedToday(playerNick, todayIso);
+              lockDailyForToday(solution);
+              refreshLeaderboard();
+            });
           }
           showToast(`The word was "${solution.toUpperCase()}"`, 1800);
           announce(`Game over. The word was ${solution}.`);
@@ -1140,7 +1179,10 @@
           if (meta && meta.mode === MODE_DAILY) {
             const todayIso = toKyivDate(new Date()).iso;
             const dateIso = meta.dateIso || todayIso;
-            if (playerNick) dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
+            if (playerNick) {
+              dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
+              setDailyPlayedToday(playerNick, dateIso);
+            }
             handledDaily = true;
           }
         } catch {}
@@ -1172,6 +1214,28 @@
       }
     } catch {}
   }
+
+  // --- Daily one-attempt-per-day helpers and UI lock ---
+  function dailyStatusKey(nick){ return `daily_status_${(nick||'').toLowerCase()}`; }
+  function setDailyPlayedToday(nick, dateIso){ try { localStorage.setItem(dailyStatusKey(nick), JSON.stringify({ dateIso })); } catch {} }
+  function getDailyStatus(nick){ try { return JSON.parse(localStorage.getItem(dailyStatusKey(nick))||'null'); } catch { return null; } }
+  function hasPlayedDailyToday(nick, todayIso){ const s = getDailyStatus(nick); return !!(s && s.dateIso === todayIso); }
+  function isDailyLockedForToday(nick){ const today = toKyivDate(new Date()).iso; return hasPlayedDailyToday(nick, today); }
+  function lockDailyForToday(word){
+    // Hide board grid and disable keyboard, show result banner
+    if (boardEl) boardEl.style.display = 'none';
+    if (keyboardWrap) keyboardWrap.style.pointerEvents = 'none';
+    if (dailyResultBox && dailyResultText) {
+      dailyResultText.textContent = `The word of the day was: ${String(word||'').toUpperCase()}`;
+      dailyResultBox.style.display = 'block';
+    }
+    locked = true; finished = true;
+    if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
+  }
+
+  // Nickname badge render helper
+  function renderNickBadge(){ if (nickBadge) nickBadge.textContent = playerNick ? playerNick : 'Guest'; }
+  renderNickBadge();
 
   // Start: enforce nickname, then start game
   ensureNickname().then(()=>{ if (playerNick) resetGame(); });
