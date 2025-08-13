@@ -325,6 +325,10 @@
       // Dictionary of acceptable English 6-letter words (daily mode)
       const DICT6 = new Set();
       let dict6Ready = false; let dict6Loading = false;
+      // Small built-in fallback so Daily works even if dict6.txt can't be fetched (e.g., file:// CORS)
+      const FALLBACK6 = [
+        'abroad','animal','planet','silver','little','public','random','orange','police','summer','winter','garden','friend','modern','mirror','select','sister','market','marine','forget','prefer','thirty','visual'
+      ];
       function loadDict6(){
         if (dict6Ready || dict6Loading) return;
         dict6Loading = true;
@@ -825,8 +829,27 @@
             if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
             resetGame(cached.toLowerCase());
           }
+          return; // done via cache
         }
       } catch {}
+      // No cache available: use built-in fallback list to ensure we can start now
+      if (Array.isArray(FALLBACK6) && FALLBACK6.length) {
+        dailySeedDate = todayTry;
+        const idx = dailyIndex(todayTry) % FALLBACK6.length;
+        const word = FALLBACK6[idx];
+        if (word && /^[a-z]{6}$/.test(word)) {
+          if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+          try { localStorage.setItem(`daily_word_${todayTry}`, String(word).toUpperCase()); } catch {}
+          if (hasPlayedDailyToday(playerNick, todayTry)) {
+            lockDailyForToday(word);
+          } else {
+            locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
+            if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
+            resetGame(word);
+          }
+          return;
+        }
+      }
       return; }
     if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
