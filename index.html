@@ -1688,12 +1688,39 @@ stilb
 ganev
   </script>
 
+  <!-- Embedded 5-letter English dictionary for validation (unique lowercase entries) -->
+  <script id="dict5" type="text/plain">
+  <!-- loaded from dict5.txt at build time; truncated in editor view -->
+  </script>
+
     <script>
       // Parse embedded bank to ensure exactly the requested 1,500 five-letter words are used
       const WORDS = document.getElementById('word-bank').textContent
         .split(/\r?\n/)
         .map(s => s.trim())
         .filter(Boolean);
+
+      // Dictionary of acceptable English 5-letter words (from embedded block or fetched file)
+      const DICT5 = new Set();
+      let dictReady = false; let dictLoading = false;
+      function loadDict(){
+        if (dictReady || dictLoading) return;
+        dictLoading = true;
+        const embedded = (document.getElementById('dict5').textContent || '').trim();
+        if (embedded) {
+          embedded.split(/\r?\n/).forEach(w => { const s=w.trim(); if (s) DICT5.add(s); });
+          dictReady = DICT5.size > 0; dictLoading = false; return;
+        }
+        // Fallback: fetch external file (works on GitHub Pages)
+        fetch('dict5.txt').then(r => r.ok ? r.text() : Promise.reject(r.status))
+          .then(txt => {
+            txt.split(/\r?\n/).forEach(w => { const s=w.trim(); if (s) DICT5.add(s); });
+            dictReady = DICT5.size > 0;
+          })
+          .catch(() => { dictReady = false; })
+          .finally(() => { dictLoading = false; });
+      }
+      loadDict();
 
       // --- Game constants ---
       const ROWS = 6; const COLS = 5;
@@ -1891,8 +1918,10 @@ ganev
       function submitGuess(){
         const guess = getGuess(curRow);
         if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
-        // Accept any 5-letter alphabetic guess
-        if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use letters A–Z'); return; }
+  // Accept only real English 5-letter words
+  if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use letters A–Z'); return; }
+  if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
+  if (!DICT5.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
         // Enforce hint position if used
         if (hintCol !== -1 && guess[hintCol] !== hintChar) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast(`The ${hintCol+1}ᵗʰ letter must be ${hintChar.toUpperCase()}`); return; }
         revealRow(guess);
