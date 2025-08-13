@@ -654,7 +654,7 @@
       const statStreak = document.getElementById('stat-streak');
       const statMax = document.getElementById('stat-max');
 
-  // We allow any 5-letter alphabetic guess per request (not restricted to word list)
+  // Guesses must be real words for each mode (validated against the dictionaries)
 
       function saveStats(s){ localStorage.setItem('cookie_wordle_stats', JSON.stringify(s)); }
       function loadStats(){
@@ -1082,9 +1082,18 @@
       })();
       if (!ok) { showToast('Daily word unavailable. Try again.'); return; }
     }
+    // Enforce "real word" check: use dict6 if ready; otherwise fallback list
+    if (dict6Ready) {
+      if (!DICT6.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+    } else if (Array.isArray(FALLBACK6) && FALLBACK6.length) {
+      if (!FALLBACK6.includes(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+    } else {
+      showToast('Loading dictionary…'); if (!dict6Ready) loadDict6(); return;
+    }
   } else {
     if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
-      // In Normal mode, allow any 5-letter alphabetic guess; dict is only for solution selection
+    if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
+    if (!DICT5.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
   }
         // Enforce hint position if used
         if (hintCol !== -1 && guess[hintCol] !== hintChar) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast(`The ${hintCol+1}ᵗʰ letter must be ${hintChar.toUpperCase()}`); return; }
