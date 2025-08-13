@@ -1848,18 +1848,71 @@ ganev
         async list(){ return this._fetch(`/players`); }
       }
 
-      const provider = (window.LEADERBOARD_API && window.LEADERBOARD_API.baseUrl) ? new RemoteLeaderboard(window.LEADERBOARD_API) : new LocalLeaderboard();
+      // Supabase REST provider
+      // window.LEADERBOARD_API example:
+      // { type: 'supabase', url: 'https://PROJECT.supabase.co', key: 'ANON_KEY', schema: 'public', table: 'players' }
+      class SupabaseLeaderboard {
+        constructor(cfg){
+          this.url = cfg.url.replace(/\/$/, '');
+          this.key = cfg.key;
+          this.schema = cfg.schema || 'public';
+          this.table = cfg.table || 'players';
+        }
+        _headers(extra={}){
+          return Object.assign({
+            'apikey': this.key,
+            'Authorization': `Bearer ${this.key}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Prefer': 'return=minimal'
+          }, extra);
+        }
+        async exists(nick){
+          const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick&nick=eq.${encodeURIComponent(nick)}`, { headers: this._headers() });
+          if (!res.ok) throw new Error(`http ${res.status}`);
+          const arr = await res.json();
+          return Array.isArray(arr) && arr.length > 0;
+        }
+        async register(nick){
+          const body = JSON.stringify({ nick, wins: 0, played: 0 });
+          const res = await fetch(`${this.url}/rest/v1/${this.table}`, { method: 'POST', headers: this._headers({ 'Prefer': 'return=representation' }), body });
+          if (res.status === 409) throw new Error('exists');
+          if (!res.ok) throw new Error(`http ${res.status}`);
+          return true;
+        }
+        async upsert(nick, totals){
+          // Upsert via POST with merge duplicates (requires unique index on nick)
+          const body = JSON.stringify({ nick, wins: totals.wins|0, played: totals.played|0 });
+          const headers = this._headers({ 'Prefer': 'resolution=merge-duplicates,return=minimal' });
+          const res = await fetch(`${this.url}/rest/v1/${this.table}`, { method: 'POST', headers, body });
+          if (!res.ok && res.status !== 409) throw new Error(`http ${res.status}`);
+          return true;
+        }
+        async list(){
+          const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,wins,played`, { headers: this._headers() });
+          if (!res.ok) throw new Error(`http ${res.status}`);
+          return res.json();
+        }
+      }
+
+  let provider = null;
+  const LB = window.LEADERBOARD_API || null;
+  if (LB && LB.type === 'supabase' && LB.url && LB.key) provider = new SupabaseLeaderboard(LB);
+  else if (LB && LB.baseUrl) provider = new RemoteLeaderboard(LB);
+  else provider = new LocalLeaderboard();
       let playerNick = (localStorage.getItem('player_nick')||'').trim();
       let canPlay = false;
 
       function validateNick(n){ return /^[A-Za-z0-9]{1,12}$/.test(n); }
       async function ensureNickname(){
         if (playerNick) { canPlay = true; return; }
-        // show modal and gate gameplay
-        openModal(modalNick);
-        nickInput.value = '';
-        nickError.style.display = 'none';
-        setTimeout(()=>nickInput.focus(), 50);
+        // show modal and gate gameplay; don't reset if already open (avoid clearing typed text)
+        if (!modalNick.classList.contains('show')) {
+          openModal(modalNick);
+          nickInput.value = '';
+          nickError.style.display = 'none';
+          setTimeout(()=>nickInput.focus(), 50);
+        }
         canPlay = false;
       }
       async function trySaveNick(){
@@ -2208,6 +2261,10 @@ ganev
 
       // Physical keyboard
       window.addEventListener('keydown', (e) => {
+        // Ignore global key handling when a modal is open or typing in inputs
+        if (modalNick.classList.contains('show') || modalLeader.classList.contains('show')) return;
+        const tag = (e.target && e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
         const k = e.key.toLowerCase();
         if (k === 'enter') onKey('enter');
         else if (k === 'backspace' || k === 'delete') onKey('back');
