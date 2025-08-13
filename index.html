@@ -1040,8 +1040,8 @@
   // Accept only real English words of current mode length
   if (mode === MODE_DAILY) {
     if (!/^[a-z]{6}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 6 letters A–Z'); return; }
-    if (!dict6Ready) { showToast('Loading dictionary…'); loadDict6(); return; }
-    if (!DICT6.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+  // Allow any 6-letter guess; just ensure the daily word is ready
+  if (!solution || solution.length !== 6) { showToast('Loading daily word…'); if (!dict6Ready) loadDict6(); return; }
   } else {
     if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
       // In Normal mode, allow any 5-letter alphabetic guess; dict is only for solution selection
