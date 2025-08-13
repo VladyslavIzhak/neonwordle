@@ -57,7 +57,7 @@
   /* no cookie crisps in neon theme */
 
   header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg, rgba(10,12,20,0.8), rgba(10,12,20,0.5)); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(0,229,255,0.2); }
-  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 1px; color: var(--text); }
   .brand .cookie { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(16px 16px at 35% 35%, var(--accent) 0, rgba(0,229,255,0.15) 60%, transparent 70%), radial-gradient(10px 10px at 70% 60%, var(--accent-2) 0, rgba(255,56,199,0.12) 60%, transparent 70%); box-shadow: var(--glow), var(--glow-mag); }
   .brand span { font-size: 18px; color: var(--text); }
@@ -197,8 +197,8 @@
           <button id="btn-normal" class="btn" style="display:none" title="Switch to Normal Mode">Normal Mode</button>
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
           <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
-          <span id="nick-badge" style="margin-left:6px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px;">Guest</span>
         </div>
+        <span id="nick-corner" style="position:absolute; right:16px; top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px;">Guest</span>
       </div>
     </header>
 
@@ -622,9 +622,11 @@
           // ignore
         }
       }
-      // periodic refresh
-      setInterval(refreshLeaderboard, 20000);
-      refreshLeaderboard();
+  // periodic refresh
+  setInterval(refreshLeaderboard, 20000);
+  // Trigger two quick refreshes for faster first paint
+  refreshLeaderboard();
+  setTimeout(refreshLeaderboard, 300);
 
       // --- Game constants ---
     const ROWS = 6; let COLS = 5;
@@ -640,7 +642,7 @@
   const dailyResultBox = document.getElementById('daily-result');
   const dailyResultText = document.getElementById('daily-result-text');
   const keyboardWrap = document.getElementById('keyboard');
-  const nickBadge = document.getElementById('nick-badge');
+  const nickCorner = document.getElementById('nick-corner');
 
       // Stats
       const statPlayed = document.getElementById('stat-played');
@@ -815,13 +817,15 @@
     const word = window._DICT6_ARR[idx];
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+    // Cache today's word (for showing after refresh before dict is ready)
+    try { localStorage.setItem(`daily_word_${today}`, String(word).toUpperCase()); } catch {}
     // If already played today, lock and show banner; else start the round
     if (hasPlayedDailyToday(playerNick, today)) {
       lockDailyForToday(word);
     } else {
       // Ensure board and keyboard are visible
       boardEl.style.display = '';
-      if (keyboardWrap) keyboardWrap.style.pointerEvents = '';
+      if (keyboardWrap) { keyboardWrap.style.pointerEvents = ''; keyboardWrap.style.display = ''; }
       if (dailyResultBox) dailyResultBox.style.display = 'none';
       resetGame(word);
     }
@@ -849,7 +853,7 @@
   btnNew.textContent = 'Next word'; btnNew.style.display = 'inline-flex';
   // Restore board visibility
   boardEl.style.display = '';
-  if (keyboardWrap) keyboardWrap.style.pointerEvents = '';
+  if (keyboardWrap) { keyboardWrap.style.pointerEvents = ''; keyboardWrap.style.display = ''; }
   if (dailyResultBox) dailyResultBox.style.display = 'none';
     resetGame();
   refreshLeaderboard();
@@ -1040,7 +1044,6 @@
         // First pass: correct
         for (let i=0;i<COLS;i++) {
           if (guess[i] === answer[i]) { res[i] = 'correct'; counts.set(guess[i], counts.get(guess[i]) - 1); }
-        }
         // Second pass: present
         for (let i=0;i<COLS;i++) {
           if (res[i] === 'correct') continue;
@@ -1183,6 +1186,11 @@
               dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
               setDailyPlayedToday(playerNick, dateIso);
             }
+            // If we're in daily mode or will switch into it later, prepare the banner
+            try {
+              const cached = localStorage.getItem(`daily_word_${todayIso}`);
+              if (cached) { lockDailyForToday(cached); }
+            } catch {}
             handledDaily = true;
           }
         } catch {}
@@ -1224,9 +1232,17 @@
   function lockDailyForToday(word){
     // Hide board grid and disable keyboard, show result banner
     if (boardEl) boardEl.style.display = 'none';
-    if (keyboardWrap) keyboardWrap.style.pointerEvents = 'none';
+    if (keyboardWrap) { keyboardWrap.style.pointerEvents = 'none'; keyboardWrap.style.display = 'none'; }
     if (dailyResultBox && dailyResultText) {
-      dailyResultText.textContent = `The word of the day was: ${String(word||'').toUpperCase()}`;
+      let shown = String(word||'').toUpperCase();
+      if (!shown) {
+        try {
+          const today = toKyivDate(new Date()).iso;
+          const cached = localStorage.getItem(`daily_word_${today}`);
+          if (cached) shown = cached;
+        } catch {}
+      }
+      dailyResultText.textContent = `The word of the day was: ${shown}`;
       dailyResultBox.style.display = 'block';
     }
     locked = true; finished = true;
@@ -1234,7 +1250,7 @@
   }
 
   // Nickname badge render helper
-  function renderNickBadge(){ if (nickBadge) nickBadge.textContent = playerNick ? playerNick : 'Guest'; }
+  function renderNickBadge(){ if (nickCorner) nickCorner.textContent = playerNick ? playerNick : 'Guest'; }
   renderNickBadge();
 
   // Start: enforce nickname, then start game
