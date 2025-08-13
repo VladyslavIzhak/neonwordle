@@ -198,7 +198,7 @@
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
           <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
         </div>
-        <span id="nick-corner" style="position:absolute; right:16px; top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px;">Guest</span>
+  <span id="nick-corner" style="position:absolute; right:16px; top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px; pointer-events:none;">Guest</span>
       </div>
     </header>
 
@@ -823,10 +823,9 @@
     if (hasPlayedDailyToday(playerNick, today)) {
       lockDailyForToday(word);
     } else {
-      // Ensure board and keyboard are visible
-      boardEl.style.display = '';
-      if (keyboardWrap) { keyboardWrap.style.pointerEvents = ''; keyboardWrap.style.display = ''; }
-      if (dailyResultBox) dailyResultBox.style.display = 'none';
+  // Ensure board and keyboard are visible
+  showPlayfield();
+  if (dailyResultBox) dailyResultBox.style.display = 'none';
       resetGame(word);
     }
   }
@@ -854,8 +853,7 @@
     stopDailyCountdown();
   btnNew.textContent = 'Next word'; btnNew.style.display = 'inline-flex';
   // Restore board visibility
-  boardEl.style.display = '';
-  if (keyboardWrap) { keyboardWrap.style.pointerEvents = ''; keyboardWrap.style.display = ''; }
+  showPlayfield();
   if (dailyResultBox) dailyResultBox.style.display = 'none';
     resetGame();
   refreshLeaderboard();
@@ -1236,8 +1234,7 @@
   function isDailyLockedForToday(nick){ const today = toKyivDate(new Date()).iso; return hasPlayedDailyToday(nick, today); }
   function lockDailyForToday(word){
     // Hide board grid and disable keyboard, show result banner
-    if (boardEl) boardEl.style.display = 'none';
-    if (keyboardWrap) { keyboardWrap.style.pointerEvents = 'none'; keyboardWrap.style.display = 'none'; }
+  hidePlayfield();
     if (dailyResultBox && dailyResultText) {
       let shown = String(word||'').toUpperCase();
       if (!shown) {
@@ -1254,6 +1251,18 @@
     if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
   }
 
+  // Visibility helpers
+  function showPlayfield(){
+    if (boardEl) boardEl.style.display = '';
+    if (keyboardWrap) { keyboardWrap.style.pointerEvents = ''; keyboardWrap.style.display = ''; }
+    if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
+  }
+  function hidePlayfield(){
+    if (boardEl) boardEl.style.display = 'none';
+    if (keyboardWrap) { keyboardWrap.style.pointerEvents = 'none'; keyboardWrap.style.display = 'none'; }
+    if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
+  }
+
   // Nickname badge render helper
   function renderNickBadge(){ if (nickCorner) nickCorner.textContent = playerNick ? playerNick : 'Guest'; }
   renderNickBadge();
@@ -1263,7 +1272,7 @@
     if (!playerNick) return;
     let last = null; try { last = localStorage.getItem('last_mode'); } catch {}
     if (last === MODE_DAILY) { enterDaily(); }
-    else { resetGame(); }
+    else { showPlayfield(); resetGame(); }
   });
     </script>
   </body>
