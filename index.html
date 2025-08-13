@@ -1019,7 +1019,7 @@
           } else {
             stats.played++; stats.streak = 0; saveStats(stats); renderStats();
             if (playerNick) {
-              if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(true).then(refreshLeaderboard).catch(()=>{});
+              if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(false).then(refreshLeaderboard).catch(()=>{});
               else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
             }
           }
