@@ -484,7 +484,16 @@
 
       class SupabaseSecureLeaderboard extends SupabaseSecureBase {
         constructor(cfg){ super(cfg); this.isSecure = true; }
-        async exists(nick){ try { const { data, error } = await this.sb.from('leaderboard_players').select('nick').eq('nick', nick).limit(1); if (error) return false; return Array.isArray(data) && data.length>0; } catch { return false; } }
+        async exists(nick){
+          try {
+            const { data, error } = await this.sb.from('leaderboard_players')
+              .select('nick')
+              .ilike('nick', nick) // case-insensitive exact match
+              .limit(1);
+            if (error) return false;
+            return Array.isArray(data) && data.length > 0;
+          } catch { return false; }
+        }
         async register(nick){ await this.rpc('set_nick', { p_nick: nick }); return true; }
   async upsert(_nick, _totals){ /* server computes totals; no-op here */ return true; }
   async delete(_nick){ /* not supported securely; no-op */ return true; }
