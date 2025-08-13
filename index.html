@@ -1774,7 +1774,17 @@ stilb
 ganev
   </script>
 
-  
+  <script>
+    // Global leaderboard: Supabase config (public anon key)
+    window.LEADERBOARD_API = {
+      type: 'supabase',
+      url: 'https://jmcjlvukbuqsickepjbp.supabase.co',
+      key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY2psdnVrYnVxc2lja2VwamJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUwOTMyOTUsImV4cCI6MjA3MDY2OTI5NX0.g-PoNyO_c9NFZMqPA8zM5LfhUuCzGY9UCYYvY5h8vIc',
+      schema: 'public',
+      table: 'players'
+    };
+  </script>
+
 
     <script>
       // Parse embedded bank to ensure exactly the requested 1,500 five-letter words are used
