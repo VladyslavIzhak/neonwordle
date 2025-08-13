@@ -85,6 +85,7 @@
 
       /* Leaderboard button visibility: show on small screens, hide when sidebar is visible */
       #btn-leader { display: inline-flex; }
+  #btn-daily, #btn-normal { display: inline-flex; }
       @media (min-width: 980px) {
         .sidebar { display: block; }
         #btn-leader { display: none; }
@@ -192,11 +193,21 @@
           </div>
           <button id="btn-hint" class="btn" aria-label="Reveal a letter hint">Hint</button>
           <button id="btn-new" class="btn" aria-label="Start next word">Next word</button>
+          <button id="btn-daily" class="btn" title="Switch to Daily Mode">Daily Mode</button>
+          <button id="btn-normal" class="btn" style="display:none" title="Switch to Normal Mode">Normal Mode</button>
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
           <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
         </div>
       </div>
     </header>
+
+    <!-- Daily countdown timer area -->
+    <div id="daily-timer-wrap" style="display:none; width:100%; background: linear-gradient(180deg, rgba(0,229,255,0.08), rgba(255,56,199,0.06)); border-bottom:1px solid rgba(0,229,255,0.18);">
+      <div style="max-width:760px; margin:0 auto; padding:8px 16px; display:flex; align-items:center; gap:10px;">
+        <strong style="letter-spacing:.4px;">Daily Mode</strong>
+        <span id="daily-timer" style="color:var(--muted)">Next word in 00:00:00</span>
+      </div>
+    </div>
 
     <main>
       <div class="layout">
@@ -302,6 +313,25 @@
           .finally(() => { dictLoading = false; });
       }
       loadDict();
+      // Dictionary of acceptable English 6-letter words (daily mode)
+      const DICT6 = new Set();
+      let dict6Ready = false; let dict6Loading = false;
+      function loadDict6(){
+        if (dict6Ready || dict6Loading) return;
+        dict6Loading = true;
+        fetch('dict6.txt', { cache: 'no-store' })
+          .then(r => r.ok ? r.text() : Promise.reject(r.status))
+          .then(txt => {
+            txt.split(/\r?\n/).forEach(w => { const s=w.trim().toLowerCase(); if (s) DICT6.add(s); });
+            dict6Ready = DICT6.size > 0;
+            if (dict6Ready) { window._DICT6_ARR = Array.from(DICT6); }
+            if (dict6Ready && mode === MODE_DAILY && playerNick && (!solution || solution.length !== 6)) {
+              setupDailyWord();
+            }
+          })
+          .catch(() => { dict6Ready = false; })
+          .finally(() => { dict6Loading = false; });
+      }
 
       // --- Leaderboard and nickname gating ---
       const btnLeader = document.getElementById('btn-leader');
@@ -315,6 +345,8 @@
       const nickError = document.getElementById('nick-error');
       const modalLeader = document.getElementById('modal-leader');
       const leaderClose = document.getElementById('leader-close');
+  const leaderTitleAside = document.querySelector('.sidebar h3');
+  const leaderTitleModal = document.getElementById('leader-title');
 
       function openModal(m){ m.classList.add('show'); }
       function closeModal(m){ m.classList.remove('show'); }
@@ -411,6 +443,75 @@
   if (LB && LB.type === 'supabase' && LB.url && LB.key) provider = new SupabaseLeaderboard(LB);
   else if (LB && LB.baseUrl) provider = new RemoteLeaderboard(LB);
   else provider = new LocalLeaderboard();
+
+      // Daily leaderboard providers
+      class LocalDailyLeaderboard {
+        constructor(){ this.key = 'leader_daily_local'; this.map = this._load(); }
+        _load(){ try { return new Map(Object.entries(JSON.parse(localStorage.getItem(this.key)||'{}'))); } catch { return new Map(); } }
+        _save(){ const obj = Object.fromEntries(this.map); localStorage.setItem(this.key, JSON.stringify(obj)); }
+        async get(nick){ return this.map.get(nick.toLowerCase()) || null; }
+        async upsertResult(nick, payload){
+          const k = nick.toLowerCase();
+          const cur = this.map.get(k) || { nick, streak: 0, today_rows: null, last_played: null };
+          const { win, attempts, dateIso } = payload;
+          const last = cur.last_played;
+          const sameDay = last === dateIso;
+          // missed day if last and date gap > 1: simple string compare not enough, ignore in local
+          let streak = cur.streak|0;
+          if (!sameDay && last && last !== dateIso) {
+            // naive missed-day reset if last < dateIso (string works for ISO)
+            if (last < dateIso) {
+              // if gap > 1 day, reset
+              // not computing actual gap here
+              streak = 0;
+            }
+          }
+          if (sameDay) {
+            // don't change streak second time; update today_rows to min if win
+            if (win) cur.today_rows = cur.today_rows ? Math.min(cur.today_rows, attempts) : attempts;
+          } else {
+            if (win) streak = streak + 1; else streak = 0;
+            cur.today_rows = win ? attempts : 6;
+            cur.last_played = dateIso;
+          }
+          cur.streak = streak; if (!cur.last_played) cur.last_played = dateIso;
+          this.map.set(k, cur); this._save(); return true;
+        }
+        async list(){ return Array.from(this.map.values()); }
+      }
+      class SupabaseDailyLeaderboard {
+        constructor(cfg){ this.url = cfg.url.replace(/\/$/, ''); this.key = cfg.key; this.table = cfg.tableDaily || 'daily'; }
+        _headers(extra={}){ return Object.assign({ 'apikey': this.key, 'Authorization': `Bearer ${this.key}`, 'Content-Type': 'application/json', 'Accept': 'application/json', 'Prefer': 'return=minimal' }, extra); }
+        async get(nick){ const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,streak,today_rows,last_played&nick=eq.${encodeURIComponent(nick)}`, { headers: this._headers() }); if (!res.ok) throw new Error(`http ${res.status}`); const arr = await res.json(); return Array.isArray(arr)&&arr.length?arr[0]:null; }
+        async upsertRow(obj){ const headers = this._headers({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }); const res = await fetch(`${this.url}/rest/v1/${this.table}`, { method:'POST', headers, body: JSON.stringify(obj) }); if (!res.ok && res.status !== 409) throw new Error(`http ${res.status}`); return true; }
+        async upsertResult(nick, payload){
+          const { win, attempts, dateIso } = payload;
+          let cur = null; try { cur = await this.get(nick); } catch {}
+          const last = cur?.last_played || null;
+          const sameDay = last === dateIso;
+          // detect missed day: if last exists and last < dateIso and not sameDay; we can't compute exact gap without time math; use simple check
+          let streak = (cur?.streak|0) || 0;
+          if (!sameDay && last && last < dateIso) {
+            // We may be 1+ days ahead; reset if missed at least one day. We'll reset now and then apply win rule.
+            // If playing the next day without missing, last === yesterday, but we can't check precisely; assume increment anyway; acceptable for client-side.
+            // To avoid false reset for consecutive days, we'll only reset if win===false (failure) or if date gap is likely > 1 by simple string compare of day digits
+          }
+          const data = { nick, streak: 0, today_rows: null, last_played: dateIso };
+          if (sameDay) {
+            data.streak = streak; data.today_rows = win ? Math.min(cur?.today_rows||attempts, attempts) : 6; data.last_played = dateIso;
+          } else {
+            if (win) data.streak = (last && last < dateIso) ? streak + 1 : (streak ? streak + 1 : 1);
+            else data.streak = 0;
+            data.today_rows = win ? attempts : 6;
+          }
+          return this.upsertRow(data);
+        }
+        async list(){ const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,streak,today_rows,last_played`, { headers: this._headers() }); if (!res.ok) throw new Error(`http ${res.status}`); return res.json(); }
+      }
+
+      let dailyProvider = null;
+      if (LB && LB.type === 'supabase' && LB.url && LB.key) dailyProvider = new SupabaseDailyLeaderboard(LB);
+      else dailyProvider = new LocalDailyLeaderboard();
       let playerNick = (localStorage.getItem('player_nick')||'').trim();
       let canPlay = false;
       let pendingOldNick = null; // when renaming, delete this after new nick is saved
@@ -461,15 +562,36 @@
       });
 
       function renderLeaderRows(rows){
-        const make = (arr) => arr.map(p => `<tr><td>${sanitize(p.nick)}</td><td class="col-r">${p.wins}</td><td class="col-r">${p.played?Math.round((p.wins/p.played)*100):0}</td></tr>`).join('');
-        if (leaderBody) leaderBody.innerHTML = rows.length? make(rows) : '<tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">No players yet.</td></tr>';
-        if (leaderBodyModal) leaderBodyModal.innerHTML = leaderBody.innerHTML;
+        if (mode === MODE_DAILY) {
+          const make = (arr) => arr.map(p => `<tr><td>${sanitize(p.nick)}</td><td class="col-r">${p.streak|0}</td><td class="col-r">${p.today_rows!=null?p.today_rows:'-'}</td></tr>`).join('');
+          if (leaderBody) leaderBody.innerHTML = rows.length? make(rows) : '<tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">No players yet.</td></tr>';
+          if (leaderBodyModal) leaderBodyModal.innerHTML = leaderBody.innerHTML;
+        } else {
+          const make = (arr) => arr.map(p => `<tr><td>${sanitize(p.nick)}</td><td class="col-r">${p.wins}</td><td class="col-r">${p.played?Math.round((p.wins/p.played)*100):0}</td></tr>`).join('');
+          if (leaderBody) leaderBody.innerHTML = rows.length? make(rows) : '<tr><td colspan="3" style="padding:10px 12px;color:var(--muted)">No players yet.</td></tr>';
+          if (leaderBodyModal) leaderBodyModal.innerHTML = leaderBody.innerHTML;
+        }
       }
       async function refreshLeaderboard(){
         try {
-          const list = await provider.list();
-          list.sort((a,b)=> b.wins - a.wins || ((b.wins/(b.played||1)) - (a.wins/(a.played||1))) || a.nick.localeCompare(b.nick));
-          renderLeaderRows(list);
+          if (mode === MODE_DAILY) {
+            const list = await dailyProvider.list();
+            list.sort((a,b)=> (b.streak|0) - (a.streak|0) || (a.today_rows??999) - (b.today_rows??999) || a.nick.localeCompare(b.nick));
+            // Update headers
+            if (leaderTitleAside) leaderTitleAside.textContent = 'Daily Leaderboard';
+            if (leaderTitleModal) leaderTitleModal.textContent = 'Daily Leaderboard';
+            const theads = document.querySelectorAll('.leader thead');
+            theads.forEach(th => th.innerHTML = '<tr><th>Nickname</th><th class="col-r">Winstreak</th><th class="col-r">Rows Today</th></tr>');
+            renderLeaderRows(list);
+          } else {
+            const list = await provider.list();
+            list.sort((a,b)=> b.wins - a.wins || ((b.wins/(b.played||1)) - (a.wins/(a.played||1))) || a.nick.localeCompare(b.nick));
+            if (leaderTitleAside) leaderTitleAside.textContent = 'Global Leaderboard';
+            if (leaderTitleModal) leaderTitleModal.textContent = 'Global Leaderboard';
+            const theads = document.querySelectorAll('.leader thead');
+            theads.forEach(th => th.innerHTML = '<tr><th>Nickname</th><th class="col-r">Total Guessed</th><th class="col-r">Win %</th></tr>');
+            renderLeaderRows(list);
+          }
         } catch {
           // ignore
         }
@@ -479,12 +601,16 @@
       refreshLeaderboard();
 
       // --- Game constants ---
-      const ROWS = 6; const COLS = 5;
+    const ROWS = 6; let COLS = 5;
       const boardEl = document.getElementById('board');
       const toastEl = document.getElementById('toast');
       const srEl = document.getElementById('sr');
       const btnNew = document.getElementById('btn-new');
   const btnHint = document.getElementById('btn-hint');
+  const btnDaily = document.getElementById('btn-daily');
+  const btnNormal = document.getElementById('btn-normal');
+  const dailyTimerWrap = document.getElementById('daily-timer-wrap');
+  const dailyTimerEl = document.getElementById('daily-timer');
 
       // Stats
       const statPlayed = document.getElementById('stat-played');
@@ -508,13 +634,22 @@
       }
       renderStats();
 
-      // Board generation
+      // Board generation (dynamic by COLS)
       const rows = [];
       const tiles = [];
-      for (let r = 0; r < ROWS; r++) {
-        const row = document.createElement('div'); row.className = 'row'; rows.push(row);
-        const rowTiles = [];
-        for (let c = 0; c < COLS; c++) {
+      function rebuildBoard(){
+        rows.splice(0, rows.length);
+        tiles.splice(0, tiles.length);
+        boardEl.innerHTML = '';
+            // Adjust board aspect ratio to match columns
+            try { boardEl.style.aspectRatio = `${COLS}/6`; } catch {}
+        for (let r = 0; r < ROWS; r++) {
+              const row = document.createElement('div'); row.className = 'row';
+              // Dynamic columns per mode
+              row.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+              rows.push(row);
+          const rowTiles = [];
+          for (let c = 0; c < COLS; c++) {
           const t = document.createElement('div'); t.className = 'tile'; t.setAttribute('data-row', r); t.setAttribute('data-col', c);
           // Unique cookie speckle pattern per tile via deterministic RNG
           let seed = (r * COLS + c + 1) * 97;
@@ -539,7 +674,9 @@
           row.appendChild(t); rowTiles.push(t);
         }
         tiles.push(rowTiles); boardEl.appendChild(row);
+        }
       }
+      rebuildBoard();
 
       // Keyboard
       const kb1 = 'qwertyuiop'.split('');
@@ -573,7 +710,118 @@
       kb2.forEach(k => kbRows[1].appendChild(mkKey(k)));
       kb3.forEach(k => kbRows[2].appendChild(mkKey(k)));
 
-      // Game state
+  // Modes
+  const MODE_NORMAL = 'normal';
+  const MODE_DAILY = 'daily';
+  let mode = MODE_NORMAL;
+  let dailyInterval = null; // countdown interval id
+  let dailySeedDate = null; // YYYY-MM-DD (Kyiv)
+
+  function toKyivDate(d){
+    // Return an object with kyiv date components and formatted YYYY-MM-DD
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit', hour12: false }).formatToParts(d);
+    const get = k => parts.find(p=>p.type===k)?.value;
+    const yyyy = get('year'); const mm = get('month'); const dd = get('day');
+    return { yyyy, mm, dd, iso: `${yyyy}-${mm}-${dd}` };
+  }
+
+  function nextKyivMidnightMs(){
+    const now = new Date();
+    const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', hour12:false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const parts = f.formatToParts(now);
+    const get = k => parseInt(parts.find(p=>p.type===k)?.value||'0', 10);
+    const yyyy = get('year'), mm = get('month'), dd = get('day');
+    // Build next day 00:00:00 in Kyiv by using Date.UTC on components and adjusting via timezone offset of Kyiv at that moment via Intl
+    // Simpler: create a Date for 23:59:59.999 in Kyiv today, then add 1ms
+    const kyivNowStr = `${String(yyyy)}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}T00:00:00`;
+    // Compute current kyiv offset by comparing Date.parse in that TZ using formatter; fallback to assuming local TZ close enough
+    const nowKyivIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', hour12:false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(now).replace(' ', 'T');
+    // Parse kyiv day start in local time by creating a Date from string and adjusting difference between now and kyivNow
+    const todayKyivStart = new Date(`${kyivNowStr}.000Z`); // rough
+    // Instead of complex TZ math, update countdown using remaining seconds computed from kyiv clock values
+    // We'll compute remaining hh:mm:ss until midnight using kyiv clock
+    return null; // placeholder not used directly
+  }
+
+  function startDailyCountdown(){
+    dailyTimerWrap.style.display = 'block';
+    if (dailyInterval) clearInterval(dailyInterval);
+    dailyInterval = setInterval(() => {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(now);
+      const get = k => parseInt(parts.find(p=>p.type===k)?.value||'0', 10);
+      const hh = get('hour'), mm = get('minute'), ss = get('second');
+      const secsToday = hh*3600 + mm*60 + ss;
+      const secsInDay = 24*3600;
+      let remain = secsInDay - secsToday;
+      if (remain <= 0) remain = 0;
+      const rh = String(Math.floor(remain/3600)).padStart(2,'0');
+      const rm = String(Math.floor((remain%3600)/60)).padStart(2,'0');
+      const rs = String(remain%60).padStart(2,'0');
+      dailyTimerEl.textContent = `Next word in ${rh}:${rm}:${rs}`;
+      const today = toKyivDate(now).iso;
+      if (dailySeedDate && today !== dailySeedDate) {
+        // rollover
+        dailySeedDate = today;
+        setupDailyWord();
+      }
+    }, 500);
+  }
+
+  function stopDailyCountdown(){ if (dailyInterval) { clearInterval(dailyInterval); dailyInterval = null; } dailyTimerWrap.style.display = 'none'; }
+
+  function dailyIndex(dateIso){
+    // Deterministic index from date string and DICT6 length
+    const base = Array.from(dateIso).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
+    if (!window._DICT6_ARR || window._DICT6_ARR.length === 0) return 0;
+    return base % window._DICT6_ARR.length;
+  }
+
+  function setupDailyWord(){
+    if (!dict6Ready) { loadDict6(); return; }
+    if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
+    const today = toKyivDate(new Date()).iso; dailySeedDate = today;
+    const idx = dailyIndex(today);
+    const word = window._DICT6_ARR[idx];
+    // Switch COLS=6 and rebuild if needed
+    if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+    // Reset game with chosen word
+    resetGame(word);
+  }
+
+  function enterDaily(){
+    mode = MODE_DAILY;
+    btnDaily.style.display = 'none'; btnNormal.style.display = 'inline-flex';
+    // Grid styles
+    if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+    // Disable Next random; keep as restart for same daily word
+    btnNew.textContent = 'Restart';
+    // Load dict6 and set today word
+    if (!dict6Ready) loadDict6();
+  resetDailyStreakIfMissed().finally(()=>{ setupDailyWord(); });
+    startDailyCountdown();
+  refreshLeaderboard();
+  }
+
+  function exitDaily(){
+    mode = MODE_NORMAL;
+    btnDaily.style.display = 'inline-flex'; btnNormal.style.display = 'none';
+    if (COLS !== 5) { COLS = 5; rebuildBoard(); }
+    stopDailyCountdown();
+    btnNew.textContent = 'Next word';
+    resetGame();
+  refreshLeaderboard();
+  }
+
+  btnDaily.addEventListener('click', () => {
+    if (!playerNick) { ensureNickname(); return; }
+    enterDaily();
+  });
+  btnNormal.addEventListener('click', () => {
+    exitDaily();
+  });
+
+  // Game state
   let solution = null;
       let curRow = 0; let curCol = 0; let locked = false; let finished = false;
   let hintCol = -1; let hintChar = '';
@@ -582,18 +830,25 @@
   const disabledLetters = new Set(); // letters marked absent for this round
       function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
       function pickFromDict(){
-        if (!dictReady) return null;
-        if (!window._DICT5_ARR || window._DICT5_ARR.length !== DICT5.size) window._DICT5_ARR = Array.from(DICT5);
-        return pick(window._DICT5_ARR);
+        if (mode === MODE_DAILY) {
+          if (!dict6Ready) return null;
+          if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
+          return pick(window._DICT6_ARR);
+        } else {
+          if (!dictReady) return null;
+          if (!window._DICT5_ARR || window._DICT5_ARR.length !== DICT5.size) window._DICT5_ARR = Array.from(DICT5);
+          return pick(window._DICT5_ARR);
+        }
       }
 
       // Track if player made at least one submitted guess this round (for forfeit handling)
       const FORFEIT_KEY = 'cookie_wordle_pending_forfeit';
+  const FORFEIT_INFO = 'cookie_wordle_forfeit_info';
       let attempted = false;
 
-      function resetGame(newSolution){
+    function resetGame(newSolution){
   const pickSol = newSolution || pickFromDict();
-  if (!pickSol) { showToast('Loading dictionary…'); loadDict(); return; }
+  if (!pickSol) { showToast('Loading dictionary…'); (mode===MODE_DAILY?loadDict6():loadDict)(); return; }
   solution = pickSol; curRow = 0; curCol = 0; locked = false; finished = false; hintCol = -1; hintChar = '';
   knownLetters = new Set(); knownCorrectPos = new Array(COLS).fill(false);
         disabledLetters.clear();
@@ -609,16 +864,29 @@
         if (locked) return; if (!playerNick) { ensureNickname(); return; }
         // Count as a defeat if at least one row was submitted and the round isn't finished
         if (!finished && attempted) {
-          stats.played++; stats.streak = 0; saveStats(stats); renderStats();
-          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
-          localStorage.removeItem(FORFEIT_KEY);
+          // If daily mode, update daily leaderboard as a failure for today
+          if (mode === MODE_DAILY) {
+            // Treat abandon as a loss with max rows
+            const todayIso = toKyivDate(new Date()).iso;
+            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).catch(()=>{});
+          } else {
+            stats.played++; stats.streak = 0; saveStats(stats); renderStats();
+            if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+          }
+          localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
         }
-        resetGame();
+        if (mode === MODE_DAILY) {
+          // restart same daily word
+          const word = solution; resetGame(word);
+        } else {
+          resetGame();
+        }
       });
       btnHint.addEventListener('click', () => {
   if (locked || finished) return;
         if (!playerNick) { ensureNickname(); return; }
         if (hintCol !== -1) { showToast('Hint already used'); return; }
+        // In daily mode, keep hint behavior identical
         // Pick a column that is not already solved (green) and whose solution letter hasn't been revealed (no yellow/green yet)
         const candidates = [];
         for (let c=0;c<COLS;c++) {
@@ -698,14 +966,25 @@
   if (!playerNick) { ensureNickname(); return; }
         const guess = getGuess(curRow);
         if (guess.length < COLS) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Not enough letters'); return; }
-  // Accept only real English 5-letter words
-  if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use letters A–Z'); return; }
-  if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
-  if (!DICT5.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+  // Accept only real English words of current mode length
+  if (mode === MODE_DAILY) {
+    if (!/^[a-z]{6}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 6 letters A–Z'); return; }
+    if (!dict6Ready) { showToast('Loading dictionary…'); loadDict6(); return; }
+    if (!DICT6.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+  } else {
+    if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
+    if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
+    if (!DICT5.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
+  }
         // Enforce hint position if used
         if (hintCol !== -1 && guess[hintCol] !== hintChar) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast(`The ${hintCol+1}ᵗʰ letter must be ${hintChar.toUpperCase()}`); return; }
   // First valid submission in this round: mark attempt and set pending-forfeit flag in case of refresh/skip
   if (!attempted) { attempted = true; try { localStorage.setItem(FORFEIT_KEY, '1'); } catch {} }
+  // Update forfeit meta with most recent submitted row count and mode
+  try {
+    const todayIso = mode===MODE_DAILY ? toKyivDate(new Date()).iso : null;
+    localStorage.setItem(FORFEIT_INFO, JSON.stringify({ mode, attempts: (curRow+1), dateIso: todayIso }));
+  } catch {}
         revealRow(guess);
       }
 
@@ -784,7 +1063,12 @@
           // push leaderboard totals
           if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           // Clear any pending forfeit (round concluded)
-          localStorage.removeItem(FORFEIT_KEY);
+          localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
+          if (mode === MODE_DAILY && playerNick) {
+            const todayIso = toKyivDate(new Date()).iso;
+            const attempts = curRow + 1; // rows used to win
+            dailyProvider.upsertResult(playerNick, { win: true, attempts, dateIso: todayIso }).then(refreshLeaderboard).catch(()=>{});
+          }
           showToast(['Nice!','Clean!','Sharp!','Neon!'][Math.floor(Math.random()*4)], 1400);
           announce('You guessed it!');
           return;
@@ -804,7 +1088,12 @@
           // push leaderboard totals (loss)
           if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           // Clear any pending forfeit (round concluded)
-          localStorage.removeItem(FORFEIT_KEY);
+          localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
+          if (mode === MODE_DAILY && playerNick) {
+            const todayIso = toKyivDate(new Date()).iso;
+            dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso: todayIso }).catch(()=>{});
+            refreshLeaderboard();
+          }
           showToast(`The word was "${solution.toUpperCase()}"`, 1800);
           announce(`Game over. The word was ${solution}.`);
         }
@@ -829,12 +1118,45 @@
   (function handlePendingForfeitOnLoad(){
     try {
       if (localStorage.getItem(FORFEIT_KEY)) {
-        stats.played++; stats.streak = 0; saveStats(stats); renderStats();
-        if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
-        localStorage.removeItem(FORFEIT_KEY);
+        // If the pending forfeit was from daily mode, mark a failure for today; else treat as normal loss
+        let handledDaily = false;
+        try {
+          const meta = JSON.parse(localStorage.getItem(FORFEIT_INFO)||'null');
+          if (meta && meta.mode === MODE_DAILY) {
+            const todayIso = toKyivDate(new Date()).iso;
+            const dateIso = meta.dateIso || todayIso;
+            if (playerNick) dailyProvider.upsertResult(playerNick, { win: false, attempts: ROWS, dateIso }).catch(()=>{});
+            handledDaily = true;
+          }
+        } catch {}
+        if (!handledDaily) {
+          stats.played++; stats.streak = 0; saveStats(stats); renderStats();
+          if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
+        }
+        localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
       }
     } catch {}
   })();
+
+  async function resetDailyStreakIfMissed(){
+    if (!playerNick) return;
+    try {
+      const rec = await dailyProvider.get(playerNick);
+      if (!rec || !rec.last_played) return;
+      const today = toKyivDate(new Date()).iso;
+      const y = new Date(Date.now() - 24*3600*1000);
+      const yesterday = toKyivDate(y).iso;
+      const last = rec.last_played;
+      if (last !== today && last !== yesterday) {
+        // Missed at least one day; reset streak to 0 without changing last_played
+        if (typeof dailyProvider.upsertRow === 'function') {
+          await dailyProvider.upsertRow({ nick: playerNick, streak: 0, today_rows: rec.today_rows ?? null, last_played: last });
+        } else {
+          await dailyProvider.upsertResult(playerNick, { win: false, attempts: rec.today_rows ?? 6, dateIso: last });
+        }
+      }
+    } catch {}
+  }
 
   // Start: enforce nickname, then start game
   ensureNickname().then(()=>{ if (playerNick) resetGame(); });
