@@ -1688,10 +1688,7 @@ stilb
 ganev
   </script>
 
-  <!-- Embedded 5-letter English dictionary for validation (unique lowercase entries) -->
-  <script id="dict5" type="text/plain">
-  <!-- loaded from dict5.txt at build time; truncated in editor view -->
-  </script>
+  
 
     <script>
       // Parse embedded bank to ensure exactly the requested 1,500 five-letter words are used
@@ -1700,19 +1697,14 @@ ganev
         .map(s => s.trim())
         .filter(Boolean);
 
-      // Dictionary of acceptable English 5-letter words (from embedded block or fetched file)
+      // Dictionary of acceptable English 5-letter words (fetched from dict5.txt)
       const DICT5 = new Set();
       let dictReady = false; let dictLoading = false;
       function loadDict(){
         if (dictReady || dictLoading) return;
         dictLoading = true;
-        const embedded = (document.getElementById('dict5').textContent || '').trim();
-        if (embedded) {
-          embedded.split(/\r?\n/).forEach(w => { const s=w.trim(); if (s) DICT5.add(s); });
-          dictReady = DICT5.size > 0; dictLoading = false; return;
-        }
-        // Fallback: fetch external file (works on GitHub Pages)
-        fetch('dict5.txt').then(r => r.ok ? r.text() : Promise.reject(r.status))
+        fetch('dict5.txt', { cache: 'no-store' })
+          .then(r => r.ok ? r.text() : Promise.reject(r.status))
           .then(txt => {
             txt.split(/\r?\n/).forEach(w => { const s=w.trim(); if (s) DICT5.add(s); });
             dictReady = DICT5.size > 0;
