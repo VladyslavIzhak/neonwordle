@@ -1044,6 +1044,7 @@
         // First pass: correct
         for (let i=0;i<COLS;i++) {
           if (guess[i] === answer[i]) { res[i] = 'correct'; counts.set(guess[i], counts.get(guess[i]) - 1); }
+  }
         // Second pass: present
         for (let i=0;i<COLS;i++) {
           if (res[i] === 'correct') continue;
