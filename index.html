@@ -26,10 +26,7 @@
         --glow-mag: 0 0 12px rgba(255,56,199,0.45), 0 0 32px rgba(255,56,199,0.25);
   --gap: 8px; /* board/key spacing */
       }
-
-      html, body {
-        height: 100%;
-      }
+      
   /* Prevent padding from causing overflow and right-side gaps */
   *, *::before, *::after { box-sizing: border-box; }
       body {
@@ -1842,6 +1839,7 @@ ganev
         async exists(nick){ return this.map.has(nick.toLowerCase()); }
         async register(nick){ const k = nick.toLowerCase(); if (this.map.has(k)) throw new Error('exists'); this.map.set(k, { nick, wins: 0, played: 0 }); this._save(); return true; }
         async upsert(nick, totals){ const k = nick.toLowerCase(); const cur = this.map.get(k) || { nick, wins: 0, played: 0 }; this.map.set(k, { nick, wins: Math.max(totals.wins, cur.wins), played: Math.max(totals.played, cur.played) }); this._save(); return true; }
+        async delete(nick){ const k = nick.toLowerCase(); this.map.delete(k); this._save(); return true; }
         async list(){ return Array.from(this.map.values()); }
       }
 
@@ -1857,6 +1855,7 @@ ganev
         async exists(nick){ const j = await this._fetch(`/players/exists?nick=${encodeURIComponent(nick)}`); return !!j.exists; }
         async register(nick){ const j = await this._fetch(`/players`, { method:'POST', body: JSON.stringify({ nick }) }); if (j && j.error) throw new Error(j.error); return true; }
         async upsert(nick, totals){ const j = await this._fetch(`/players/${encodeURIComponent(nick)}`, { method:'PUT', body: JSON.stringify(totals) }); if (j && j.error) throw new Error(j.error); return true; }
+        async delete(nick){ await this._fetch(`/players/${encodeURIComponent(nick)}`, { method: 'DELETE' }); return true; }
         async list(){ return this._fetch(`/players`); }
       }
 
@@ -1900,6 +1899,11 @@ ganev
           if (!res.ok && res.status !== 409) throw new Error(`http ${res.status}`);
           return true;
         }
+        async delete(nick){
+          const res = await fetch(`${this.url}/rest/v1/${this.table}?nick=eq.${encodeURIComponent(nick)}`, { method: 'DELETE', headers: this._headers({ 'Prefer': 'return=minimal' }) });
+          if (!res.ok) throw new Error(`http ${res.status}`);
+          return true;
+        }
         async list(){
           const res = await fetch(`${this.url}/rest/v1/${this.table}?select=nick,wins,played`, { headers: this._headers() });
           if (!res.ok) throw new Error(`http ${res.status}`);
@@ -1914,6 +1918,7 @@ ganev
   else provider = new LocalLeaderboard();
       let playerNick = (localStorage.getItem('player_nick')||'').trim();
       let canPlay = false;
+      let pendingOldNick = null; // when renaming, delete this after new nick is saved
 
       function validateNick(n){ return /^[A-Za-z0-9]{1,12}$/.test(n); }
       async function ensureNickname(){
@@ -1938,6 +1943,11 @@ ganev
           nickError.style.display = 'none'; closeModal(modalNick); canPlay = true; showToast(`Welcome, ${n}!`);
           // Push current totals if any
           await provider.upsert(playerNick, { wins: stats.wins, played: stats.played });
+          // If renamed, delete previous nickname record
+          if (pendingOldNick && pendingOldNick.toLowerCase() !== n.toLowerCase()) {
+            try { await provider.delete(pendingOldNick); } catch {}
+          }
+          pendingOldNick = null;
           refreshLeaderboard();
         } catch (e) {
           nickError.textContent = 'Could not reserve nickname. Try again.'; nickError.style.display = 'block';
@@ -1949,6 +1959,7 @@ ganev
       document.getElementById('leader-close').addEventListener('click', ()=> closeModal(modalLeader));
       btnChangeNick.addEventListener('click', ()=>{
         // Clear in-memory and stored nick and prompt again
+        pendingOldNick = playerNick || null;
         playerNick = '';
         localStorage.removeItem('player_nick');
         ensureNickname();
@@ -2257,7 +2268,7 @@ ganev
           showToast(['Nice!','Clean!','Sharp!','Neon!'][Math.floor(Math.random()*4)], 1400);
           announce('You guessed it!');
           return;
-        }
+  }
 
         curRow++; curCol = 0; locked = false;
         // If hint is active, prefill the next row's hint cell and place cursor after it
