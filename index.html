@@ -57,7 +57,7 @@
   /* no cookie crisps in neon theme */
 
   header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg, rgba(10,12,20,0.8), rgba(10,12,20,0.5)); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(0,229,255,0.2); }
-  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; padding-right: 120px; }
+  .header-inner { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 1px; color: var(--text); }
   .brand .cookie { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(16px 16px at 35% 35%, var(--accent) 0, rgba(0,229,255,0.15) 60%, transparent 70%), radial-gradient(10px 10px at 70% 60%, var(--accent-2) 0, rgba(255,56,199,0.12) 60%, transparent 70%); box-shadow: var(--glow), var(--glow-mag); }
   .brand span { font-size: 18px; color: var(--text); }
@@ -198,7 +198,7 @@
           <button id="btn-leader" class="btn" aria-haspopup="dialog" aria-controls="modal-leader" title="Show leaderboards">Leaderboards</button>
           <button id="btn-change-nick" class="btn" title="Change your nickname">Change Nickname</button>
         </div>
-  <span id="nick-corner" style="position:absolute; right:16px; top:8px; padding:6px 8px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background: rgba(18,23,42,0.6); font-weight:800; letter-spacing:.3px; pointer-events:none;">Guest</span>
+  
       </div>
     </header>
 
@@ -244,7 +244,7 @@
     </main>
 
     <footer style="width:100%; text-align:center; color:var(--muted); font-size:12px; padding:12px 8px; opacity:0.85;">
-      v1.0 by Yozhik
+      v1.0 by Yozhik — Player: <span id="nick-footer">Guest</span>
     </footer>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -642,7 +642,7 @@
   const dailyResultBox = document.getElementById('daily-result');
   const dailyResultText = document.getElementById('daily-result-text');
   const keyboardWrap = document.getElementById('keyboard');
-  const nickCorner = document.getElementById('nick-corner');
+  const nickFooter = document.getElementById('nick-footer');
 
       // Stats
       const statPlayed = document.getElementById('stat-played');
@@ -810,15 +810,31 @@
   }
 
   function setupDailyWord(){
-    if (!dict6Ready) { loadDict6(); return; }
+    if (!dict6Ready) { loadDict6();
+      // Try to use a cached word for today to avoid empty banner on refresh
+      const todayTry = toKyivDate(new Date()).iso;
+      try {
+        const cached = localStorage.getItem(`daily_word_${todayTry}`);
+        if (cached && /^[A-Z]{6}$/.test(cached)) {
+          dailySeedDate = todayTry;
+          if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+          if (hasPlayedDailyToday(playerNick, todayTry)) {
+            lockDailyForToday(cached);
+          } else {
+            showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none'; resetGame(cached.toLowerCase());
+          }
+        }
+      } catch {}
+      return; }
     if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
     const idx = dailyIndex(today);
     const word = window._DICT6_ARR[idx];
+    if (!word || !/^[a-z]{6}$/.test(word)) { return; }
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
     // Cache today's word (for showing after refresh before dict is ready)
-    try { localStorage.setItem(`daily_word_${today}`, String(word).toUpperCase()); } catch {}
+  try { localStorage.setItem(`daily_word_${today}`, String(word).toUpperCase()); } catch {}
     // If already played today, lock and show banner; else start the round
     if (hasPlayedDailyToday(playerNick, today)) {
       lockDailyForToday(word);
@@ -906,10 +922,12 @@
         announce(`New word. Start guessing.`);
       }
 
-      btnNew.addEventListener('click', () => {
+    btnNew.addEventListener('click', () => {
         if (locked) return; if (!playerNick) { ensureNickname(); return; }
         // Count as a defeat if at least one row was submitted and the round isn't finished
         if (!finished && attempted) {
+      // Clear pending forfeit flags first to avoid duplicate processing on reload
+      try { localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO); } catch {}
           // If daily mode, update daily leaderboard as a failure for today
           if (mode === MODE_DAILY) {
             // Treat abandon as a loss with max rows
@@ -919,7 +937,6 @@
             stats.played++; stats.streak = 0; saveStats(stats); renderStats();
             if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
           }
-          localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
         }
         if (mode === MODE_DAILY) {
           // restart same daily word
@@ -1027,7 +1044,10 @@
         // Enforce hint position if used
         if (hintCol !== -1 && guess[hintCol] !== hintChar) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast(`The ${hintCol+1}ᵗʰ letter must be ${hintChar.toUpperCase()}`); return; }
   // First valid submission in this round: mark attempt and set pending-forfeit flag in case of refresh/skip
-  if (!attempted) { attempted = true; try { localStorage.setItem(FORFEIT_KEY, '1'); } catch {} }
+  if (!attempted) {
+    attempted = true;
+    try { if (!localStorage.getItem(FORFEIT_KEY)) localStorage.setItem(FORFEIT_KEY, '1'); } catch {}
+  }
   // Update forfeit meta with most recent submitted row count and mode
   try {
     const todayIso = mode===MODE_DAILY ? toKyivDate(new Date()).iso : null;
@@ -1176,6 +1196,8 @@
   (function handlePendingForfeitOnLoad(){
     try {
       if (localStorage.getItem(FORFEIT_KEY)) {
+        // Clear first to ensure we don't double-count if any code path below reloads UI or errors
+        try { localStorage.removeItem(FORFEIT_KEY); } catch {}
         // If the pending forfeit was from daily mode, mark a failure for today; else treat as normal loss
         let handledDaily = false;
         try {
@@ -1198,11 +1220,11 @@
             handledDaily = true;
           }
         } catch {}
-        if (!handledDaily) {
+  if (!handledDaily) {
           stats.played++; stats.streak = 0; saveStats(stats); renderStats();
           if (playerNick) { provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{}); }
         }
-        localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO);
+  try { localStorage.removeItem(FORFEIT_INFO); } catch {}
       }
     } catch {}
   })();
@@ -1265,7 +1287,7 @@
   }
 
   // Nickname badge render helper
-  function renderNickBadge(){ if (nickCorner) nickCorner.textContent = playerNick ? playerNick : 'Guest'; }
+  function renderNickBadge(){ if (nickFooter) nickFooter.textContent = playerNick ? playerNick : 'Guest'; }
   renderNickBadge();
 
   // Start: enforce nickname, then restore last mode and start game
