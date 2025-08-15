@@ -327,12 +327,8 @@
       }
       loadDict();
       // Dictionary of acceptable English 6-letter words (daily mode)
-      const DICT6 = new Set();
-      let dict6Ready = false; let dict6Loading = false;
-      // Small built-in fallback so Daily works even if dict6.txt can't be fetched (e.g., file:// CORS)
-      const FALLBACK6 = [
-        'abroad','animal','planet','silver','little','public','random','orange','police','summer','winter','garden','friend','modern','mirror','select','sister','market','marine','forget','prefer','thirty','visual'
-      ];
+  const DICT6 = new Set();
+  let dict6Ready = false; let dict6Loading = false;
       function loadDict6(){
         if (dict6Ready || dict6Loading) return;
         dict6Loading = true;
@@ -627,6 +623,12 @@
           pendingOldNick = null;
           refreshLeaderboard();
           renderNickBadge();
+          // Start a fresh round immediately to ensure input is enabled without a refresh
+          if (mode === MODE_DAILY) {
+            enterDaily();
+          } else {
+            showPlayfield(); resetGame();
+          }
         } catch (e) {
           nickError.textContent = 'Could not reserve nickname. Try again.'; nickError.style.display = 'block';
         }
@@ -875,43 +877,11 @@
   }
 
   function setupDailyWord(){
-    if (!dict6Ready) { loadDict6();
-      // Try to use a cached word for today to avoid empty banner on refresh
-      const todayTry = toKyivDate(new Date()).iso;
-      try {
-        const cached = localStorage.getItem(`daily_word_${todayTry}`);
-        if (cached && /^[A-Z]{6}$/.test(cached)) {
-          dailySeedDate = todayTry;
-          if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-          if (hasPlayedDailyToday(playerNick, todayTry)) {
-            lockDailyForToday(cached);
-          } else {
-            locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
-            if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
-            resetGame(cached.toLowerCase());
-          }
-          return; // done via cache
-        }
-      } catch {}
-      // No cache available: use built-in fallback list to ensure we can start now
-      if (Array.isArray(FALLBACK6) && FALLBACK6.length) {
-        dailySeedDate = todayTry;
-        const idx = dailyIndex(todayTry) % FALLBACK6.length;
-        const word = FALLBACK6[idx];
-        if (word && /^[a-z]{6}$/.test(word)) {
-          if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-          try { localStorage.setItem(`daily_word_${todayTry}`, String(word).toUpperCase()); } catch {}
-          if (hasPlayedDailyToday(playerNick, todayTry)) {
-            lockDailyForToday(word);
-          } else {
-            locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
-            if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
-            resetGame(word);
-          }
-          return;
-        }
-      }
-      return; }
+    if (!dict6Ready) {
+      loadDict6();
+      showToast('Loading dictionary…');
+      return;
+    }
     if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
     const idx = dailyIndex(today);
@@ -938,14 +908,14 @@
     btnDaily.style.display = 'none'; btnNormal.style.display = 'inline-flex';
     // Grid styles
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-  // Ensure the board is visible and inputs are unlocked immediately
-  locked = false; finished = false; showPlayfield();
-  if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
+    // Keep input locked until the daily word is loaded
+    locked = true; finished = false; showToast('Loading daily word…');
+    if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
   // No restart/next in Daily mode
   btnNew.style.display = 'none';
     // Load dict6 and set today word
     if (!dict6Ready) loadDict6();
-  // Set today's word immediately for better UX; handle streak check in background
+  // Set today's word after dict6 is ready
   setupDailyWord();
   resetDailyStreakIfMissed();
     startDailyCountdown();
@@ -1147,11 +1117,9 @@
       })();
       if (!ok) { showToast('Daily word unavailable. Try again.'); return; }
     }
-    // Enforce "real word" check: use dict6 if ready; otherwise fallback list
+    // Enforce "real word" check using dict6 only
     if (dict6Ready) {
       if (!DICT6.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
-    } else if (Array.isArray(FALLBACK6) && FALLBACK6.length) {
-      if (!FALLBACK6.includes(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
     } else {
       showToast('Loading dictionary…'); if (!dict6Ready) loadDict6(); return;
     }
