@@ -885,12 +885,14 @@
     if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
     const idx = dailyIndex(today);
-    const word = window._DICT6_ARR[idx];
-    if (!word || !/^[a-z]{6}$/.test(word)) { return; }
+  const word = window._DICT6_ARR[idx];
+  if (!word || !/^[a-z]{6}$/.test(word)) { return; }
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
     // Cache today's word (for showing after refresh before dict is ready)
   try { localStorage.setItem(`daily_word_${today}`, String(word).toUpperCase()); } catch {}
+  // Set solution immediately to allow submit to proceed without extra delay
+  solution = word;
     // If already played today, lock and show banner; else start the round
     if (hasPlayedDailyToday(playerNick, today)) {
       lockDailyForToday(word);
@@ -898,7 +900,7 @@
       // Ensure board and keyboard are visible and unlocked
       locked = false; finished = false; showPlayfield(); if (dailyResultBox) dailyResultBox.style.display = 'none';
       if (btnHint) { btnHint.removeAttribute('disabled'); btnHint.setAttribute('aria-disabled','false'); }
-      resetGame(word);
+  resetGame(word);
     }
   }
 
@@ -910,8 +912,10 @@
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
   // Allow typing immediately; submission waits for the word if needed
   locked = false; finished = false; showToast('Loading daily word…');
-  // Ensure board and keyboard are visible while waiting
+  // Ensure board and keyboard are visible while waiting and reset keyboard state
   showPlayfield();
+  disabledLetters.clear();
+  keyButtons.forEach(b => { b.classList.remove('absent','present','correct'); b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); b.dataset.state = 'none'; });
     if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
   // No restart/next in Daily mode
   btnNew.style.display = 'none';
@@ -929,6 +933,9 @@
   try { localStorage.setItem('last_mode', MODE_NORMAL); } catch {}
     btnDaily.style.display = 'inline-flex'; btnNormal.style.display = 'none';
     if (COLS !== 5) { COLS = 5; rebuildBoard(); }
+  // Reset keyboard state when returning to Normal
+  disabledLetters.clear();
+  keyButtons.forEach(b => { b.classList.remove('absent','present','correct'); b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); b.dataset.state = 'none'; });
     stopDailyCountdown();
   btnNew.textContent = 'Next word'; btnNew.style.display = 'inline-flex';
   // Restore board visibility
@@ -940,6 +947,15 @@
 
   btnDaily.addEventListener('click', () => {
     if (!playerNick) { ensureNickname(); return; }
+    // If leaving an in-progress Normal round, count as a loss
+    if (mode === MODE_NORMAL && !finished && attempted) {
+      try { localStorage.removeItem(FORFEIT_KEY); localStorage.removeItem(FORFEIT_INFO); } catch {}
+      stats.played++; stats.streak = 0; saveStats(stats); renderStats();
+      if (playerNick) {
+        if (provider && provider.isSecure && typeof provider.submitNormal === 'function') provider.submitNormal(false).then(refreshLeaderboard).catch(()=>{});
+        else provider.upsert(playerNick, { wins: stats.wins, played: stats.played }).then(refreshLeaderboard).catch(()=>{});
+      }
+    }
     enterDaily();
   });
   btnNormal.addEventListener('click', () => {
