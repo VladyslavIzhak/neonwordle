@@ -902,8 +902,12 @@
   if (!window._DICT6_ARR.length) { showToast('Dictionary is empty.'); return; }
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
     const idx = dailyIndex(today);
-  const word = window._DICT6_ARR[idx];
-  if (!word || !/^[a-z]{6}$/.test(word)) { showToast('Daily word unavailable.'); return; }
+  // Pick today's word; if out-of-bounds or invalid, fall back to the first valid entry
+  let word = window._DICT6_ARR[idx];
+  if (!word || !/^[a-z]{6}$/.test(word)) {
+    word = window._DICT6_ARR.find(w => /^[a-z]{6}$/.test(w)) || null;
+    if (!word) { showToast('Daily word unavailable.'); return; }
+  }
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
     // Cache today's word (for showing after refresh before dict is ready)
