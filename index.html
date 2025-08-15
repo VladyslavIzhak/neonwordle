@@ -908,8 +908,10 @@
     btnDaily.style.display = 'none'; btnNormal.style.display = 'inline-flex';
     // Grid styles
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-    // Keep input locked until the daily word is loaded
-    locked = true; finished = false; showToast('Loading daily word…');
+  // Allow typing immediately; submission waits for the word if needed
+  locked = false; finished = false; showToast('Loading daily word…');
+  // Ensure board and keyboard are visible while waiting
+  showPlayfield();
     if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
   // No restart/next in Daily mode
   btnNew.style.display = 'none';
