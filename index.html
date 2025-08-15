@@ -76,7 +76,13 @@
   .layout { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
       .sidebar { display: none; background: linear-gradient(180deg, var(--panel), var(--panel-2)); border-radius: 16px; border: 1px solid rgba(0,229,255,0.25); box-shadow: 0 12px 28px rgba(0,0,0,0.35), inset 0 0 18px rgba(0,229,255,0.08); padding: 12px; }
       .sidebar h3 { margin: 6px 8px 10px; font-size: 14px; font-weight: 800; letter-spacing: .5px; color: var(--text); }
-      .leader-scroll { max-height: 520px; overflow: auto; border-radius: 10px; border: 1px solid rgba(0,229,255,0.18); }
+  .leader-scroll { max-height: 520px; overflow: auto; border-radius: 10px; border: 1px solid rgba(0,229,255,0.18); }
+  /* Neon scrollbars for leaderboards */
+  .leader-scroll{ scrollbar-width: thin; scrollbar-color: rgba(0,229,255,0.7) rgba(16,20,36,0.8); }
+  .leader-scroll::-webkit-scrollbar{ width: 10px; height: 10px; }
+  .leader-scroll::-webkit-scrollbar-track{ background: linear-gradient(180deg, #0e1324, #0a0f1e); border-radius: 10px; box-shadow: inset 0 0 6px rgba(0,229,255,0.1); }
+  .leader-scroll::-webkit-scrollbar-thumb{ background: linear-gradient(180deg, rgba(0,229,255,0.85), rgba(255,56,199,0.85)); border-radius: 10px; box-shadow: 0 0 10px rgba(0,229,255,0.4), 0 0 14px rgba(255,56,199,0.25); border: 2px solid rgba(10,15,30,0.9); }
+  .leader-scroll::-webkit-scrollbar-thumb:hover{ background: linear-gradient(180deg, rgba(0,229,255,1), rgba(255,56,199,1)); box-shadow: 0 0 12px rgba(0,229,255,0.55), 0 0 18px rgba(255,56,199,0.35); }
       table.leader { width: 100%; border-collapse: collapse; font-size: 13px; }
       .leader thead th { position: sticky; top: 0; background: #12172a; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(0,229,255,0.18); }
       .leader tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(0,229,255,0.1); }
@@ -1173,12 +1179,9 @@
       })();
       if (!ok) { showToast('Daily word unavailable. Try again.'); return; }
     }
-    // Enforce "real word" check using dict6 only
-    if (dict6Ready) {
-      if (!DICT6.has(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast("We don't accept that"); return; }
-    } else {
-      showToast('Loading dictionary…'); if (!dict6Ready) loadDict6(); return;
-    }
+  // Do not block submission on dictionary membership in Daily mode to avoid stalls
+  // Still try to ensure the dictionary is loading in the background for other features
+  if (!dict6Ready) loadDict6();
   } else {
     if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
     if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
