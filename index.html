@@ -319,7 +319,7 @@
       function loadDict(){
         if (dictReady || dictLoading) return;
         dictLoading = true;
-        fetch('dict5.txt', { cache: 'no-store' })
+        fetch('./dict5.txt', { cache: 'no-store' })
           .then(r => r.ok ? r.text() : Promise.reject(r.status))
           .then(txt => {
             txt.split(/\r?\n/).forEach(w => { const s=w.trim(); if (s) DICT5.add(s); });
@@ -334,11 +334,11 @@
       loadDict();
       // Dictionary of acceptable English 6-letter words (daily mode)
   const DICT6 = new Set();
-  let dict6Ready = false; let dict6Loading = false;
+  let dict6Ready = false; let dict6Loading = false; let dict6ErrorMsg = '';
       function loadDict6(){
         if (dict6Ready || dict6Loading) return;
         dict6Loading = true;
-        fetch('dict6.txt', { cache: 'no-store' })
+        fetch('./dict6.txt', { cache: 'no-store' })
           .then(r => r.ok ? r.text() : Promise.reject(r.status))
           .then(txt => {
             // Accept strictly 6-letter alphabetic words only, normalized to lowercase
@@ -356,7 +356,11 @@
               setupDailyWord();
             }
           })
-          .catch(() => { dict6Ready = false; })
+          .catch((err) => { 
+            dict6Ready = false;
+            const hint = (location && location.protocol === 'file:') ? 'Open the game via a local server (http://), browsers block fetch() from file:///.' : 'Ensure dict6.txt is deployed next to index.html.';
+            dict6ErrorMsg = `Failed to load dict6.txt${err?` (${err})`:''}. ${hint}`;
+          })
           .finally(() => { dict6Loading = false; });
       }
 
@@ -892,11 +896,12 @@
       showToast('Loading dictionary…');
       return;
     }
-    if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
+  if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
+  if (!window._DICT6_ARR.length) { showToast('Dictionary is empty.'); return; }
     const today = toKyivDate(new Date()).iso; dailySeedDate = today;
     const idx = dailyIndex(today);
   const word = window._DICT6_ARR[idx];
-  if (!word || !/^[a-z]{6}$/.test(word)) { return; }
+  if (!word || !/^[a-z]{6}$/.test(word)) { showToast('Daily word unavailable.'); return; }
     // Switch COLS=6 and rebuild if needed
     if (COLS !== 6) { COLS = 6; rebuildBoard(); }
     // Cache today's word (for showing after refresh before dict is ready)
@@ -1175,7 +1180,12 @@
       } catch {}
       locked = true;
       await waitForDailySolution(20000);
-      if (!solution || solution.length !== 6) { locked = false; showToast('Daily word unavailable. Try again.'); return; }
+      if (!solution || solution.length !== 6) {
+        locked = false;
+        const msg = dict6ErrorMsg ? dict6ErrorMsg : 'Daily word unavailable. Try again.';
+        showToast(msg);
+        return;
+      }
       // Solution is ready now; continue to reveal below
     }
     // Do not block submission on dictionary membership in Daily mode
