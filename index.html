@@ -914,6 +914,8 @@
   locked = false; finished = false; showToast('Loading daily word…');
   // Ensure board and keyboard are visible while waiting and reset keyboard state
   showPlayfield();
+  // Always start typing at the first row after mode switch
+  curRow = 0; curCol = 0; attempted = false;
   disabledLetters.clear();
   keyButtons.forEach(b => { b.classList.remove('absent','present','correct'); b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); b.dataset.state = 'none'; });
     if (btnHint) { btnHint.setAttribute('disabled',''); btnHint.setAttribute('aria-disabled','true'); }
@@ -933,6 +935,8 @@
   try { localStorage.setItem('last_mode', MODE_NORMAL); } catch {}
     btnDaily.style.display = 'inline-flex'; btnNormal.style.display = 'none';
     if (COLS !== 5) { COLS = 5; rebuildBoard(); }
+  // Reset cursor to first row when switching modes
+  curRow = 0; curCol = 0; attempted = false;
   // Reset keyboard state when returning to Normal
   disabledLetters.clear();
   keyButtons.forEach(b => { b.classList.remove('absent','present','correct'); b.removeAttribute('disabled'); b.removeAttribute('aria-disabled'); b.dataset.state = 'none'; });
