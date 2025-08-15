@@ -337,8 +337,12 @@
           .then(txt => {
             // Accept strictly 6-letter alphabetic words only, normalized to lowercase
             txt.split(/\r?\n/).forEach(w => {
-              const s = (w||'').trim().toLowerCase();
-              if (s && /^[a-z]{6}$/.test(s)) DICT6.add(s);
+              const s = (w||'').trim();
+              if (!s) return;
+              // Skip invalid lines (wrong length, mixed case, non-alpha)
+              if (!/^[A-Za-z]{6}$/.test(s)) return;
+              const low = s.toLowerCase();
+              if (/^[a-z]{6}$/.test(low)) DICT6.add(low);
             });
             dict6Ready = DICT6.size > 0;
             if (dict6Ready) { window._DICT6_ARR = Array.from(DICT6); }
@@ -1124,7 +1128,19 @@
     if (!/^[a-z]{6}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 6 letters A–Z'); return; }
   // Allow any 6-letter guess; just ensure the daily word is ready
     if (!solution || solution.length !== 6) {
-      showToast('Loading daily word…');
+      // If dict6 is already ready, compute and set today's word immediately
+      if (dict6Ready) {
+        try {
+          const arr = (window._DICT6_ARR && window._DICT6_ARR.length) ? window._DICT6_ARR : Array.from(DICT6);
+          if (!window._DICT6_ARR || window._DICT6_ARR.length !== arr.length) window._DICT6_ARR = arr;
+          const today = toKyivDate(new Date()).iso;
+          const base = Array.from(today).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
+          const idx = arr.length ? (base % arr.length) : 0;
+          const w = arr[idx];
+          if (w && /^[a-z]{6}$/.test(w)) { if (COLS !== 6) { COLS = 6; rebuildBoard(); } solution = w; }
+        } catch {}
+      }
+      if (!solution || solution.length !== 6) showToast('Loading daily word…');
       if (!dict6Ready) loadDict6();
       // Wait for dict6 to load first, then compute today's word once
       const ok = await (async ()=>{
@@ -1138,10 +1154,14 @@
         }
         // Fallback: if dict6 is ready, compute today's word inline
         try {
-          if (dict6Ready && window._DICT6_ARR && window._DICT6_ARR.length) {
+          if (dict6Ready && DICT6 && DICT6.size > 0) {
+            const arr = (window._DICT6_ARR && window._DICT6_ARR.length) ? window._DICT6_ARR : Array.from(DICT6);
+            if (!window._DICT6_ARR || window._DICT6_ARR.length !== arr.length) window._DICT6_ARR = arr;
             const today = toKyivDate(new Date()).iso;
-            const idx = dailyIndex(today);
-            const w = window._DICT6_ARR[idx];
+            // Compute index using current array length
+            const base = Array.from(today).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
+            const idx = arr.length ? (base % arr.length) : 0;
+            const w = arr[idx];
             if (w && /^[a-z]{6}$/.test(w)) {
               if (COLS !== 6) { COLS = 6; rebuildBoard(); }
               solution = w;
