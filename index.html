@@ -366,6 +366,26 @@
           .finally(() => { dict6Loading = false; });
       }
 
+      // Optional: a much larger acceptance list for 6-letter guesses (does not affect solutions)
+      const DICT6_ALLOWED = new Set();
+      let dict6AllowedReady = false; let dict6AllowedLoading = false;
+      function loadDict6Allowed(){
+        if (dict6AllowedReady || dict6AllowedLoading) return;
+        dict6AllowedLoading = true;
+        fetch('./dict6_allowed.txt', { cache: 'no-store' })
+          .then(r => r.ok ? r.text() : Promise.reject(r.status))
+          .then(txt => {
+            txt.split(/\r?\n/).forEach(w => {
+              const s = (w||'').trim(); if (!s) return;
+              if (!/^[A-Za-z]{6}$/.test(s)) return;
+              DICT6_ALLOWED.add(s.toLowerCase());
+            });
+            dict6AllowedReady = DICT6_ALLOWED.size > 0;
+          })
+          .catch(() => { /* silently ignore if not present */ dict6AllowedReady = false; })
+          .finally(() => { dict6AllowedLoading = false; });
+      }
+
       // --- Leaderboard and nickname gating ---
       const btnLeader = document.getElementById('btn-leader');
   const btnChangeNick = document.getElementById('btn-change-nick');
@@ -897,6 +917,8 @@
       loadDict6();
       showToast('Loading dictionary…');
       return;
+      // Preload the optional expanded acceptance list for Daily guesses
+      try { loadDict6Allowed(); } catch {}
     }
   if (!window._DICT6_ARR || window._DICT6_ARR.length !== DICT6.size) window._DICT6_ARR = Array.from(DICT6);
   if (!window._DICT6_ARR.length) { showToast('Dictionary is empty.'); return; }
@@ -1172,7 +1194,21 @@
   // Accept only real English words of current mode length
   if (mode === MODE_DAILY) {
     if (!/^[a-z]{6}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 6 letters A–Z'); return; }
-  // Allow any 6-letter guess; if the daily word isn't ready, defer and auto-submit once ready
+    // Enforce dictionary membership in Daily mode (solutions from DICT6, guesses from DICT6 or DICT6_ALLOWED if available)
+    if (!dict6Ready) {
+      showToast('Loading dictionary…');
+      loadDict6();
+      return;
+    }
+    const acceptSet = (DICT6_ALLOWED && DICT6_ALLOWED.size) ? DICT6_ALLOWED : DICT6;
+    if (!acceptSet.has(guess)) {
+      rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300);
+      showToast("We don't accept that");
+      // Try to opportunistically load the larger list once if not ready
+      if (!dict6AllowedReady && !dict6AllowedLoading) loadDict6Allowed();
+      return;
+    }
+  // If the daily word isn't ready, defer and auto-submit once ready
     if (!solution || solution.length !== 6) {
       showToast('Loading daily word…');
       if (!dict6Ready) loadDict6();
@@ -1194,8 +1230,8 @@
       }
       // Solution is ready now; continue to reveal below
     }
-    // Do not block submission on dictionary membership in Daily mode
-    if (!dict6Ready) loadDict6();
+  // Ensure dict6 stays warm
+  if (!dict6Ready) loadDict6();
   } else {
     if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
     if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
