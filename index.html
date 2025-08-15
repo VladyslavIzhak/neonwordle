@@ -1136,6 +1136,19 @@
           if (solution && solution.length === 6) return true;
           await new Promise(r => setTimeout(r, 100));
         }
+        // Fallback: if dict6 is ready, compute today's word inline
+        try {
+          if (dict6Ready && window._DICT6_ARR && window._DICT6_ARR.length) {
+            const today = toKyivDate(new Date()).iso;
+            const idx = dailyIndex(today);
+            const w = window._DICT6_ARR[idx];
+            if (w && /^[a-z]{6}$/.test(w)) {
+              if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+              solution = w;
+              return true;
+            }
+          }
+        } catch {}
         return false;
       })();
       if (!ok) { showToast('Daily word unavailable. Try again.'); return; }
