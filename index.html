@@ -1123,6 +1123,35 @@
 
       function getGuess(r){ return tiles[r].map(t => (t.textContent||'').toLowerCase()).join(''); }
 
+      // Helper: wait for daily solution and reveal a pending guess
+      async function waitForDailySolution(timeoutMs = 20000){
+        if (solution && solution.length === 6) return true;
+        if (!dict6Ready) loadDict6();
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          try {
+            if (dict6Ready && (!solution || solution.length !== 6)) {
+              // Compute today's word inline deterministically
+              const arr = (window._DICT6_ARR && window._DICT6_ARR.length) ? window._DICT6_ARR : (DICT6 && DICT6.size ? Array.from(DICT6) : []);
+              if (arr.length) {
+                if (!window._DICT6_ARR || window._DICT6_ARR.length !== arr.length) window._DICT6_ARR = arr;
+                const today = toKyivDate(new Date()).iso;
+                const base = Array.from(today).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
+                const idx = base % arr.length;
+                const w = arr[idx];
+                if (w && /^[a-z]{6}$/.test(w)) {
+                  if (COLS !== 6) { COLS = 6; rebuildBoard(); }
+                  solution = w;
+                }
+              }
+            }
+          } catch {}
+          if (solution && solution.length === 6) return true;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        return !!(solution && solution.length === 6);
+      }
+
       async function submitGuess(){
         if (!playerNick) { ensureNickname(); return; }
         // Block input only if they truly played today with a valid nick
@@ -1132,56 +1161,25 @@
   // Accept only real English words of current mode length
   if (mode === MODE_DAILY) {
     if (!/^[a-z]{6}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 6 letters A–Z'); return; }
-  // Allow any 6-letter guess; just ensure the daily word is ready
+  // Allow any 6-letter guess; if the daily word isn't ready, defer and auto-submit once ready
     if (!solution || solution.length !== 6) {
-      // If dict6 is already ready, compute and set today's word immediately
-      if (dict6Ready) {
-        try {
-          const arr = (window._DICT6_ARR && window._DICT6_ARR.length) ? window._DICT6_ARR : Array.from(DICT6);
-          if (!window._DICT6_ARR || window._DICT6_ARR.length !== arr.length) window._DICT6_ARR = arr;
-          const today = toKyivDate(new Date()).iso;
-          const base = Array.from(today).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
-          const idx = arr.length ? (base % arr.length) : 0;
-          const w = arr[idx];
-          if (w && /^[a-z]{6}$/.test(w)) { if (COLS !== 6) { COLS = 6; rebuildBoard(); } solution = w; }
-        } catch {}
-      }
-      if (!solution || solution.length !== 6) showToast('Loading daily word…');
+      showToast('Loading daily word…');
       if (!dict6Ready) loadDict6();
-      // Wait for dict6 to load first, then compute today's word once
-      const ok = await (async ()=>{
-        const start = Date.now();
-        let started = false;
-        while (Date.now() - start < 6000) {
-          if (!dict6Ready) { await new Promise(r => setTimeout(r, 100)); continue; }
-          if (!started) { setupDailyWord(); started = true; }
-          if (solution && solution.length === 6) return true;
-          await new Promise(r => setTimeout(r, 100));
-        }
-        // Fallback: if dict6 is ready, compute today's word inline
-        try {
-          if (dict6Ready && DICT6 && DICT6.size > 0) {
-            const arr = (window._DICT6_ARR && window._DICT6_ARR.length) ? window._DICT6_ARR : Array.from(DICT6);
-            if (!window._DICT6_ARR || window._DICT6_ARR.length !== arr.length) window._DICT6_ARR = arr;
-            const today = toKyivDate(new Date()).iso;
-            // Compute index using current array length
-            const base = Array.from(today).reduce((a,ch)=> (a*131 + ch.charCodeAt(0))>>>0, 0) ^ 0x9e3779b9;
-            const idx = arr.length ? (base % arr.length) : 0;
-            const w = arr[idx];
-            if (w && /^[a-z]{6}$/.test(w)) {
-              if (COLS !== 6) { COLS = 6; rebuildBoard(); }
-              solution = w;
-              return true;
-            }
-          }
-        } catch {}
-        return false;
-      })();
-      if (!ok) { showToast('Daily word unavailable. Try again.'); return; }
+      // Mark attempt now, so abandon/refresh is penalized
+      if (!attempted) {
+        attempted = true; try { if (!localStorage.getItem(FORFEIT_KEY)) localStorage.setItem(FORFEIT_KEY, '1'); } catch {}
+      }
+      try {
+        const todayIso = toKyivDate(new Date()).iso;
+        localStorage.setItem(FORFEIT_INFO, JSON.stringify({ mode, attempts: (curRow+1), dateIso: todayIso }));
+      } catch {}
+      locked = true;
+      await waitForDailySolution(20000);
+      if (!solution || solution.length !== 6) { locked = false; showToast('Daily word unavailable. Try again.'); return; }
+      // Solution is ready now; continue to reveal below
     }
-  // Do not block submission on dictionary membership in Daily mode to avoid stalls
-  // Still try to ensure the dictionary is loading in the background for other features
-  if (!dict6Ready) loadDict6();
+    // Do not block submission on dictionary membership in Daily mode
+    if (!dict6Ready) loadDict6();
   } else {
     if (!/^[a-z]{5}$/.test(guess)) { rows[curRow].classList.add('shake'); setTimeout(()=>rows[curRow].classList.remove('shake'), 300); showToast('Use 5 letters A–Z'); return; }
     if (!dictReady) { showToast('Loading dictionary…'); loadDict(); return; }
