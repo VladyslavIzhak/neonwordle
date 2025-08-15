@@ -1106,12 +1106,13 @@
     if (!solution || solution.length !== 6) {
       showToast('Loading daily word…');
       if (!dict6Ready) loadDict6();
-      // Try to compute the word now (in case dict is ready but not yet set)
-      setupDailyWord();
-      // Wait briefly for the daily solution, then continue or bail
+      // Wait for dict6 to load first, then compute today's word once
       const ok = await (async ()=>{
         const start = Date.now();
-        while (Date.now() - start < 1500) {
+        let started = false;
+        while (Date.now() - start < 6000) {
+          if (!dict6Ready) { await new Promise(r => setTimeout(r, 100)); continue; }
+          if (!started) { setupDailyWord(); started = true; }
           if (solution && solution.length === 6) return true;
           await new Promise(r => setTimeout(r, 100));
         }
