@@ -331,7 +331,9 @@
           .catch(() => { dictReady = false; })
           .finally(() => { dictLoading = false; });
       }
-      loadDict();
+  loadDict();
+  // Preload dict6 at startup so Daily mode is ready promptly on GitHub Pages
+  try { loadDict6(); } catch {}
       // Dictionary of acceptable English 6-letter words (daily mode)
   const DICT6 = new Set();
   let dict6Ready = false; let dict6Loading = false; let dict6ErrorMsg = '';
@@ -352,7 +354,7 @@
             });
             dict6Ready = DICT6.size > 0;
             if (dict6Ready) { window._DICT6_ARR = Array.from(DICT6); }
-            if (dict6Ready && mode === MODE_DAILY && playerNick && (!solution || solution.length !== 6)) {
+            if (dict6Ready && mode === MODE_DAILY && (!solution || solution.length !== 6)) {
               setupDailyWord();
             }
           })
